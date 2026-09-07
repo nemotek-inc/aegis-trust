@@ -1,13 +1,13 @@
 # Security Assessment — aegis-trust
 
 - **Assessment date:** 2026-06-10 (S002 baseline); **re-assessed 2026-06-11 (S1005 — since renumbered to S006, §5 status + §6 delta)**
-- **Executor:** sprint S002 executor agent (Claude Code), recorded in
-  `~/agent-ops/beads/aegis-trust/sprints/sprint_002.md`; S1005 re-assessment in
-  `~/agent-ops/beads/aegis-trust/sprints/sprint_006.md` (formerly
-  `sprint_1005.md`: the T-040 sprint renumber on 2026-06-11 mapped aegis-trust
-  S1002–S1005 → S003–S006, receipt in agent-ops
-  `_shared/logs/sprint_renumber.jsonl`; S002 ids in this document are unchanged.
-  "S1005" below is kept as the historical label of the sprint now filed as S006)
+- **Executor:** sprint S002 executor agent (Claude Code), recorded in the
+  maintainer's private sprint ledger as `sprint_002.md`; the S1005 re-assessment
+  is recorded there as `sprint_006.md` (formerly `sprint_1005.md`: the T-040
+  sprint renumber on 2026-06-11 mapped aegis-trust S1002–S1005 → S003–S006, with
+  the renumber receipt held in the same ledger; S002 ids in this document are
+  unchanged. "S1005" below is kept as the historical label of the sprint now
+  filed as S006)
 - **Scope:** dependency supply chain (Python + Node), secrets hygiene
   (full git history), CI/CD pipeline controls, access-control implementation
   inventory
@@ -77,7 +77,7 @@ identified; all findings were dependency- or process-level).
 | ID | Risk | Why accepted now | Review by | Status |
 |---|---|---|---|---|
 | S002-AR-1 | **Merge-time fail-open**: `audit-gate` is not part of the `ci-gate` required status check, so a red audit does not block merges until the operator adds `audit-gate` to branch protection. The workflow itself is fail-closed at *build* level only (cross-review round-2 P1) | Branch-protection changes are an operator (repo-admin) action outside agent authority and outside this sprint's no-push boundary; workflow + weekly schedule already surface findings | next security-family sprint after S006 (this deadline pre-dated the T-040 renumber as "S003"; the first security-family sprint ran as S1005, now filed S006) — operator adds `audit-gate` to required checks | **S1005: reviewed — still open, operator action queued.** Branch protection at review time (`gh api .../branches/main/protection`): `required_status_checks.contexts=["ci-gate"]`, `strict=false`, `enforce_admins=true`. `audit-gate` confirmed absent. Concrete PATCH command packaged for the operator (exception `ex-20260611T014004Z-…-1ee18443`); execution remains repo-admin, outside agent authority. |
-| S002-AR-2 | Node/TypeScript sources are outside the org-level ship-readiness AC verifier glob patterns (`.rs`/`.py` only) | Verifier-side limitation, not a repo defect; node parity is covered in-repo by tests and `version-parity.yml` | resolved in S1005 (now S006; deadline pre-dated the T-040 renumber as "S003") | **S1005: resolved as a verifier-side decision.** The org ship-readiness AC glob (`**/src/*.rs`, `**/api/*.py`, `**/src/*.py`, `**/src/**/*.py`) structurally cannot see `.ts`. Node AC substance is real (`node/src/client.ts`, `shield.ts`) and exercised by `node/tests/{shield,client,fullGate}.test.ts` in `ci.yml` node-test; THREAT_MODEL §2.5 records the Python/Node parity suites. Extending the glob to `.ts` is an `agent-ops` governance-layer change (panel-gated, cross-project) handed off as a follow-up; not a repo defect. |
+| S002-AR-2 | Node/TypeScript sources are outside the org-level ship-readiness AC verifier glob patterns (`.rs`/`.py` only) | Verifier-side limitation, not a repo defect; node parity is covered in-repo by tests and `version-parity.yml` | resolved in S1005 (now S006; deadline pre-dated the T-040 renumber as "S003") | **S1005: resolved as a verifier-side decision.** The org ship-readiness AC glob (`**/src/*.rs`, `**/api/*.py`, `**/src/*.py`, `**/src/**/*.py`) structurally cannot see `.ts`. Node AC substance is real (`node/src/client.ts`, `shield.ts`) and exercised by `node/tests/{shield,client,fullGate}.test.ts` in `ci.yml` node-test; THREAT_MODEL §2.5 records the Python/Node parity suites. Extending the glob to `.ts` is an org-level governance change (panel-gated, cross-project) handed off as a follow-up; not a repo defect. |
 | S002-AR-3 | `python/.venv` fixes (idna/pip) are dev-machine-local state, not committed artifacts | The package declares no vulnerable pin (`httpx>=0.23,<1.0`); CI `audit.yml` resolves fresh on every run and fails closed, covering both consumers and CI | continuous (audit.yml) | **S1005: hardened.** The committed `python/uv.lock` was found pinning the vulnerable `idna 3.11` and `pip 26.1.1`; the fix is now a committed lockfile upgrade (idna→3.18, pip→26.1.2), not dev-local state. The `httpx>=0.23,<1.0` consumer-side argument still holds; AR-3 remains continuous via `audit.yml`. |
 
 ## 6. S1005 security-family delta (re-assessment)

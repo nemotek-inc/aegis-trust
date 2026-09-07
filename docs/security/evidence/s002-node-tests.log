@@ -1,9 +1,11 @@
+# NOTE: verbatim vitest output, with one edit — the absolute path of the
+# developer machine's checkout is redacted. Counts and timings are unmodified.
 
 > aegis-trust@0.9.2 test
 > vitest run
 
 
- RUN  v4.1.8 /Users/incierge/projects/aegis-trust/node
+ RUN  v4.1.8 <local checkout path redacted>/aegis-trust/node
 
 
  Test Files  17 passed (17)

@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
-    { name = "Incierge", email = "contact@aegisagentcontrol.com" },
+    { name = "NemoTek", email = "contact@aegisagentcontrol.com" },
 ]
 keywords = [
     "ai",
@@ -147,7 +147,7 @@ ignore_missing_imports = true
 # that pre-date the productization gate. Tightening is queued for a
 # dedicated sprint; in the interim allow current strict-vs-codebase to
 # baseline at clean by disabling these specific codes only on this package.
-# Documented exemption per F-005 (no silent bypass; explicit, audit-visible).
+# Documented exemption (no silent bypass; explicit, audit-visible).
 disable_error_code = [
     "arg-type",          # Optional → required arg narrowing (shield.py:852-856 pattern)
     "no-any-return",     # config.py:155, history.py: Any escaping declared returns

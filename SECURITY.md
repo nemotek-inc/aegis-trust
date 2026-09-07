@@ -16,7 +16,7 @@ issues. This policy covers both SDKs in this repository — the Python package
 first.**
 
 - **Preferred:** GitHub private vulnerability reporting —
-  [open a draft advisory](https://github.com/Incierge3789/aegis-trust/security/advisories/new).
+  [open a draft advisory](https://github.com/nemotek-inc/aegis-trust/security/advisories/new).
 - **Email:** `contact@aegisagentcontrol.com` with subject `[security] aegis-trust`.
 
 Include:

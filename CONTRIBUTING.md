@@ -9,7 +9,7 @@ Thanks for your interest in `aegis-trust` — the trust layer for AI agents.
 
 ## Ways to contribute
 
-- **Report a bug** — open a [bug report](https://github.com/Incierge3789/aegis-trust/issues/new/choose).
+- **Report a bug** — open a [bug report](https://github.com/nemotek-inc/aegis-trust/issues/new/choose).
 - **Report a security issue** — **do not** open a public issue; follow
   [`SECURITY.md`](SECURITY.md).
 - **Suggest a feature** — open a feature request and describe the use case.

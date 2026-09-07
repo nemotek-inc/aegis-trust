@@ -230,10 +230,10 @@ jobs:
           fi
           echo "OK: private site-repo identity is not present in tracked source."
 
-      - name: No internal-design-marked content in source (stays in private ops-meta)
+      - name: No internal-design-marked content in source (stays in the private canonical store)
         # Setup-once guard (THIS repo is public). Internal design / roadmap docs
         # (e.g. the future Doctor / receipt / policy primitive plans) live ONLY in
-        # the private ops-meta canonical store, never in this public surface. Any
+        # the private canonical store, never in this public surface. Any
         # tracked file carrying the internal-design marker fails the build, so a
         # roadmap doc can never be merged here by anyone. The marker is assembled
         # at runtime from two literals so this workflow file does not match itself.
@@ -241,7 +241,7 @@ jobs:
         run: |
           MARK="AEGIS-INTERNAL""-DESIGN"
           if git grep -lF -- "$MARK" >/dev/null 2>&1; then
-            echo "::error::Internal-design-marked content found in tracked source — keep it in the private ops-meta canonical store, not in this public repo. Offending files:" >&2
+            echo "::error::Internal-design-marked content found in tracked source — keep it in the private canonical store, not in this public repo. Offending files:" >&2
             git grep -lF -- "$MARK" >&2   # file NAMES only — never the matching lines
             exit 1
           fi

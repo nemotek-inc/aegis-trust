@@ -108,8 +108,8 @@ Package-level guides: [`python/llms.txt`](python/llms.txt) · [`node/llms.txt`](
 > for what does not work yet. Release artifacts (npm tarball, Python wheel +
 > sdist) are cosign-signed (keyless Sigstore, Rekor public log), carry npm
 > provenance + PyPI PEP 740 attestations, and are attached to the GitHub Release
-> `v0.10.2`. The prior `0.9.0-rc3` (release-integrity incident F-054) remains
-> npm-deprecated and version-scoped.
+> `v0.10.2`. The prior `0.9.0-rc3` (withdrawn: the published artifact did not
+> match this repo's source) remains npm-deprecated and version-scoped.
 >
 > **0.10.1 / 0.10.2 note.** The repository moved to the `nemotek-inc`
 > organization on 2026-09-01. `0.10.1` reached PyPI only, uploaded with a
@@ -138,7 +138,7 @@ Honest list of what does NOT work in `0.10.2`. We list these here so a real eval
 - **First-party adapters: LangChain + CrewAI + LlamaIndex on both SDKs, Vercel AI SDK on Node.** Dedicated adapters ship for **LangChain**, **CrewAI**, and **LlamaIndex** on **both** SDKs — Node (`aegis-trust/adapters`: `shieldedTool` + `toLangChainTool` / `toCrewaiTool` / `toLlamaIndexTool`) and Python (`aegis_trust.adapters`: `shielded_tool` + `to_langchain_tool` / `to_crewai_tool` / `to_llamaindex_tool`) — plus **Vercel AI SDK** on Node (`toVercelTool`), each with a runnable example and unit tests. There are **no** dedicated adapters for Anthropic / OpenAI SDKs (no tool-registry abstraction — the drop-in one-liner is the whole integration), Mastra, Bedrock, or AutoGen. Treat anything not in the [Runnable integrations](#runnable-integrations-today) table as **compatible-by-pattern**, not **integrated** — use the [Drop-in wrapper pattern](#drop-in-wrapper-pattern).
 - **Python and Node ingest-failure semantics are now aligned (fail-closed) as of 0.9.2.** Both SDKs return a type-shaped empty on a gateway ingest exception in FULL mode — the filtered data is released only after the audit record is durably accepted (AO-003 audit completeness). rc7 and earlier Node returned the filtered data anyway (fail-open on audit); that divergence was reconciled in 0.9.2 (see `node/CHANGELOG.md`).
 - **Local audit logs are append-only, NOT hash-chained or tamper-evident in the SDK.** Python writes SQLite (`~/.aegis/history.db`); Node writes JSONL (`~/.aegis/history.jsonl`). These are plain append-only local records (no `prev_hash` chaining); editing or deleting an entry leaves no cryptographic trace. Tamper-evidence is a property of the **aegis-core gateway's** server-side audit log in FULL mode (`/audit/verify` → `chain_valid`), not of these local files. Inspecting the local logs currently requires separate tooling per language.
-- **Install resolves to `0.10.2` on both registries.** `pip install aegis-trust` and `npm install aegis-trust` both fetch `0.10.2` (the two SDKs are version-locked at the same number). The deprecated `0.9.0-rc3` (release-integrity incident F-054) is version-scoped and never the default.
+- **Install resolves to `0.10.2` on both registries.** `pip install aegis-trust` and `npm install aegis-trust` both fetch `0.10.2` (the two SDKs are version-locked at the same number). The deprecated `0.9.0-rc3` (withdrawn: the published artifact did not match this repo's source) is version-scoped and never the default.
 - **Error-code reference page is hosted, not in-repo.** Error envelopes carry `docs_url: https://aegis-trust.dev/errors/<code>` (per [`python/src/aegis_trust/errors.py`](python/src/aegis_trust/errors.py) + [`node/src/errors.ts`](node/src/errors.ts)). The hosted page is the authoritative registry; the in-repo file [`node/docs/errors/README.md`](node/docs/errors/README.md) is a partial mirror. Use the `code` field on `AegisError` as the stable identifier; the Web URL may be empty for some codes during preview.
 
 If any of the above is a blocker for your use case, wait for v1.0 GA rather than adopting 0.10.2.
@@ -152,7 +152,7 @@ Honest disclosure for procurement teams, security review, and compliance officer
 - **License**: MIT (see [`LICENSE`](LICENSE); `python/LICENSE` is identical byte-for-byte). No contribution under any other license is solicited or accepted.
 - **SLA**: **none**. There is no uptime, support response, or remediation timeline commitment in this preview release.
 - **Support channel**: GitHub issues at this repo + email `contact@aegisagentcontrol.com`. No paid tier. No 24/7 channel.
-- **Vendor of record**: Incierge3789 (info@incierge.jp). Single-maintainer project at preview stage. Procurement teams that require multi-engineer bus-factor evidence should treat this as a risk factor for 0.10.2.
+- **Vendor of record**: NemoTek (contact@aegisagentcontrol.com). Single-maintainer project at preview stage. Procurement teams that require multi-engineer bus-factor evidence should treat this as a risk factor for 0.10.2.
 - **Enterprise agreement / DPA / MSA**: not offered for 0.10.2. The MIT license is the only legal instrument.
 - **Pricing**: open-source SDK is free. No commercial SKU is available.
 

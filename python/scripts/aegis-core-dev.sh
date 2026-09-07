@@ -25,15 +25,76 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/aegis-core.compose.yml"
 IMAGE_NAME="aegis-core-dev"
 # AO-001 spoof prevention: only trust remotes pointing at the canonical
-# aegis-core repo. Override via AEGIS_CORE_REMOTE_ALLOWLIST when a fork
-# is explicitly approved (comma separated glob patterns).
-# Anchored patterns only: the remote URL must begin with a canonical
-# host form ("https://github.com/OWNER/" or "git@github.com:OWNER/")
-# so that strings like https://evil.example/github.com/... cannot
-# sneak past the check. Owners are listed explicitly — add via
-# AEGIS_CORE_REMOTE_ALLOWLIST for forks.
-DEFAULT_ALLOWLIST="^(https://|git@)github\\.com[:/]Incierge3789/aegis[_-]core(\\.git)?$"
-ALLOWLIST="${AEGIS_CORE_REMOTE_ALLOWLIST:-$DEFAULT_ALLOWLIST}"
+# aegis-core repo. The canonical owner is deliberately NOT hardcoded here —
+# this repo is public and aegis-core is not — so the allowlist is supplied out
+# of band, by whichever of these is set first:
+#
+#   1. AEGIS_CORE_REMOTE_ALLOWLIST      — comma-separated anchored regexes
+#   2. AEGIS_CORE_REMOTE_ALLOWLIST_FILE — one anchored regex per line
+#      (default: $XDG_CONFIG_HOME/aegis-trust/core-remote-allowlist, falling
+#      back to $HOME/.config/...; blank lines and #-comment lines ignored)
+#
+# With neither configured the check FAILS CLOSED: an unconfigured runner
+# refuses every AEGIS_CORE_DIR rather than silently trusting all of them.
+#
+# Anchored patterns only, and this is ENFORCED, not merely requested: every
+# pattern must start with "^" and end with "$". An unanchored pattern such as
+# "." matches every remote and would silently turn the allowlist off, so a
+# pattern that is not anchored is refused instead of trusted. Anchoring is what
+# stops strings like https://evil.example/github.com/... from sneaking past.
+ALLOWLIST_FILE="${AEGIS_CORE_REMOTE_ALLOWLIST_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/aegis-trust/core-remote-allowlist}"
+
+load_allowlist() {
+  local raw=() line pattern
+  if [[ -n "${AEGIS_CORE_REMOTE_ALLOWLIST:-}" ]]; then
+    IFS=',' read -ra raw <<<"$AEGIS_CORE_REMOTE_ALLOWLIST"
+  elif [[ -r "$ALLOWLIST_FILE" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      raw+=("$line")
+    done <"$ALLOWLIST_FILE"
+  fi
+
+  ALLOWLIST_PATTERNS=()
+  if [[ ${#raw[@]} -gt 0 ]]; then
+    for pattern in "${raw[@]}"; do
+      # Trim surrounding whitespace; drop blank entries and comment lines.
+      pattern="${pattern#"${pattern%%[![:space:]]*}"}"
+      pattern="${pattern%"${pattern##*[![:space:]]}"}"
+      [[ -z "$pattern" || "$pattern" == \#* ]] && continue
+      if [[ "$pattern" != \^* || "$pattern" != *\$ ]]; then
+        cat >&2 <<EOF
+error: aegis-core remote allowlist pattern is not anchored:
+
+  $pattern
+
+Every pattern must start with "^" and end with "\$". An unanchored pattern
+matches remotes it was never meant to (". " matches all of them), which would
+turn this trust check off without saying so. Refusing rather than trusting.
+EOF
+        exit 2
+      fi
+      ALLOWLIST_PATTERNS+=("$pattern")
+    done
+  fi
+
+  if [[ ${#ALLOWLIST_PATTERNS[@]} -eq 0 ]]; then
+    cat >&2 <<EOF
+error: no aegis-core remote allowlist is configured, so no AEGIS_CORE_DIR can
+be trusted (fail-closed).
+
+Configure the canonical remote once, either as an environment variable:
+
+    export AEGIS_CORE_REMOTE_ALLOWLIST='^(https://|git@)github\\.com[:/]OWNER/aegis[_-]core(\\.git)?$'
+
+or in a file (one anchored regex per line):
+
+    $ALLOWLIST_FILE
+
+Anchor every pattern with ^...$ so a lookalike remote cannot match.
+EOF
+    exit 2
+  fi
+}
 
 require_env() {
   if [[ -z "${AEGIS_CORE_DIR:-}" ]]; then
@@ -64,8 +125,8 @@ EOF
     exit 2
   fi
   local pattern ok=0
-  IFS=',' read -ra PATTERNS <<<"$ALLOWLIST"
-  for pattern in "${PATTERNS[@]}"; do
+  load_allowlist
+  for pattern in "${ALLOWLIST_PATTERNS[@]}"; do
     if [[ "$remote" =~ $pattern ]]; then
       ok=1
       break
@@ -76,11 +137,11 @@ EOF
 error: $AEGIS_CORE_DIR origin is "$remote" which does not match the
 aegis-core remote allowlist:
 
-  $ALLOWLIST
+${ALLOWLIST_PATTERNS[*]}
 
 This protects the β runner from a spoofed AEGIS_CORE_DIR (AO-001
-trust boundary). Set AEGIS_CORE_REMOTE_ALLOWLIST to override when a
-fork is explicitly approved.
+trust boundary). Set AEGIS_CORE_REMOTE_ALLOWLIST (or add a line to
+$ALLOWLIST_FILE) to approve an additional fork.
 EOF
     exit 2
   fi
