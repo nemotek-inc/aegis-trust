@@ -5,8 +5,8 @@ Scans public-facing files for Trojan Horse violations:
 
 - Banned internal component names (aegis-core, sync_policies, Mode.FULL/LITE/AUTO, etc.)
 - Legacy package name (``aegis-shield``) outside of allowed migration context
-- Private repo URLs (github.com/Incierge3789/aegis-shield)
-- Non-approved contact emails (only contact@aegisagentcontrol.com allowed)
+- GitHub repo references outside the approved set (this repo only)
+- Non-approved contact emails / hosts (only the project's own channel)
 - Relative links to private-repo files (``examples/``, ``docs/decisions/``)
 
 Aegis 米軍規格: skip = fail.
@@ -55,12 +55,6 @@ BANNED_TERMS = {
     # Use "email contact@..." or "reach contact@..." instead. Catches the
     # duplication even when the email itself is in the approved list.
     "contact contact@ duplication": re.compile(r"\bcontact\s+`?contact@"),
-    # Obsolete placeholder domain that was never owned — must not surface
-    # in any user-facing artifact (README, CHANGELOG, PyPI metadata, etc.).
-    # Historical CHANGELOG entries that needed to describe the bounce
-    # incident have been rewritten to refer to "the placeholder domain"
-    # without naming it, so this guard stays absolute.
-    "obsolete placeholder domain": re.compile(r"\bincierge\.com\b"),
 }
 
 # 'aegis-shield' is allowed in:
@@ -78,8 +72,53 @@ LEGACY_NAME_RE = re.compile(r"\baegis-shield\b")
 # everywhere else; the CHANGELOG-scoped allowlist is narrow.
 CHANGELOG_HISTORICAL_OK = {"aegis-core"}
 
-# Private repo URL (must not appear in public files)
-PRIVATE_REPO_RE = re.compile(r"github\.com/Incierge3789/aegis-shield", re.IGNORECASE)
+# Only this repository may be named by a github.com repo reference in a public
+# file. This is an allowlist rather than a denylist of specific private repos:
+# it catches a reference to *any* unapproved repo (including ones that do not
+# exist yet), and — unlike a denylist — it does not require a private repo name
+# to be written into this public file in order to recognise one.
+APPROVED_REPOS = {"nemotek-inc/aegis-trust"}
+GITHUB_REPO_RE = re.compile(
+    r"github\.com[:/]([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]+)", re.IGNORECASE)
+
+# Hosts that may appear in a public file. Same rationale as APPROVED_REPOS: the
+# rule is "only these", so a host that was never registered is caught without
+# being named here.
+APPROVED_HOSTS = {
+    "aegisagentcontrol.com",  # the project's only owned contact domain
+    "github.com",
+    "img.shields.io",
+    "pypi.org",
+    "npmjs.com",
+    "www.npmjs.com",
+    "opensource.org",
+    "spdx.org",
+    "packaging.python.org",
+    "peps.python.org",
+    "docs.pypi.org",
+    "blockstream.info",  # OpenTimestamps calendar/explorer referenced by the attestation docs
+    "localhost",
+    "example.com",
+    "ex.com",
+}
+
+# Two checks, because they have genuinely different reach — do not read the
+# second as covering the first.
+#
+# URL_HOST_RE is the EXACT one: anything written as a real URL has its host
+# checked whatever its TLD, so an unregistered or newly-invented domain is
+# caught. This is the check that matters, and it has no false positives.
+URL_HOST_RE = re.compile(r"https?://([A-Za-z0-9.-]+)", re.IGNORECASE)
+#
+# HOSTNAME_RE is a HEURISTIC for bare mentions in prose ("write to example.com"),
+# where nothing marks the token as a host. It is deliberately limited to the TLDs
+# below: widening it makes dotted identifiers and filenames (``ci-matrix.sh``,
+# ``profile.name``, ``tool.mypy``) read as hosts. So a bare mention of a host on
+# an unlisted TLD is NOT caught — write it as a URL and it is.
+HOSTNAME_RE = re.compile(
+    r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:com|org|io|net|dev|jp|ai)\b",
+    re.IGNORECASE)
+
 
 # Emails: must be in approved set OR be example.com demo data.
 # contact@aegisagentcontrol.com is the only real, owned contact channel.
@@ -90,6 +129,48 @@ APPROVED_EMAILS = {
 }
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 DEMO_EMAIL_DOMAINS = {"example.com", "ex.com"}
+
+
+def unapproved_repos(text: str):
+    """Yield (line_no, "owner/repo") for every github repo outside the allowlist."""
+    for m in GITHUB_REPO_RE.finditer(text):
+        owner, repo = m.group(1), m.group(2).rstrip(".")
+        if repo.endswith(".git"):
+            repo = repo[: -len(".git")]
+        if f"{owner}/{repo}".lower() in {r.lower() for r in APPROVED_REPOS}:
+            continue
+        yield text.count("\n", 0, m.start()) + 1, f"{owner}/{repo}"
+
+
+def unapproved_hosts(text: str):
+    """Yield (line_no, host) for every host outside the allowlist.
+
+    Hosts written as a URL are checked exactly; bare prose mentions are matched
+    by the TLD heuristic. A host found both ways is reported once.
+    """
+    seen = set()
+    for pattern, group in ((URL_HOST_RE, 1), (HOSTNAME_RE, 0)):
+        for m in pattern.finditer(text):
+            host = m.group(group).lower().rstrip(".")
+            if not host or host in APPROVED_HOSTS:
+                continue
+            line_no = text.count("\n", 0, m.start()) + 1
+            if (line_no, host) in seen:
+                continue
+            seen.add((line_no, host))
+            yield line_no, host
+
+
+def unapproved_emails(text: str):
+    """Yield (line_no, email) for every address outside the approved set."""
+    approved = {e.lower() for e in APPROVED_EMAILS}
+    for m in EMAIL_RE.finditer(text):
+        email = m.group(0)
+        if email.lower() in approved:
+            continue
+        if email.rsplit("@", 1)[1].lower() in DEMO_EMAIL_DOMAINS:
+            continue
+        yield text.count("\n", 0, m.start()) + 1, email
 
 # Relative private paths in markdown links: [text](examples/foo.py) or [text](docs/decisions/...)
 PRIVATE_RELATIVE_RE = re.compile(r"\]\((?:\./)?(?:examples/|docs/decisions/)[^\)]+\)")
@@ -146,22 +227,20 @@ def scan_file(path: Path, violations: list[str]) -> None:
                 f"{path.relative_to(ROOT)}:{i}: legacy name 'aegis-shield' outside Migration section"
             )
 
-    # Private repo URLs
-    for m in PRIVATE_REPO_RE.finditer(text):
-        line_no = text.count("\n", 0, m.start()) + 1
+    # GitHub repo references outside the approved set
+    for line_no, repo in unapproved_repos(text):
         violations.append(
-            f"{path.relative_to(ROOT)}:{line_no}: private repo URL exposed (Incierge3789/aegis-shield)"
+            f"{path.relative_to(ROOT)}:{line_no}: github repo reference outside the approved set: '{repo}'"
+        )
+
+    # Hosts outside the approved set
+    for line_no, host in unapproved_hosts(text):
+        violations.append(
+            f"{path.relative_to(ROOT)}:{line_no}: host outside the approved set: '{host}'"
         )
 
     # Emails
-    for m in EMAIL_RE.finditer(text):
-        email = m.group(0)
-        domain = email.rsplit("@", 1)[1].lower()
-        if email in APPROVED_EMAILS:
-            continue
-        if domain in DEMO_EMAIL_DOMAINS:
-            continue
-        line_no = text.count("\n", 0, m.start()) + 1
+    for line_no, email in unapproved_emails(text):
         violations.append(
             f"{path.relative_to(ROOT)}:{line_no}: non-approved contact email '{email}'"
         )
@@ -182,9 +261,6 @@ SOURCE_BANNED = {
     # strings — public docstrings, log lines, error messages — surface
     # internal Aegis nomenclature that means nothing to consumers.
     "AO-XXX code": re.compile(r"\bAO-00[1-6]\b"),
-    # Obsolete placeholder domain addresses were never set up. Only
-    # contact@aegisagentcontrol.com is a real, owned contact channel.
-    "obsolete placeholder email domain": re.compile(r"@incierge\.com\b"),
     # "contact contact@" duplication at the source level (docstrings, log
     # strings). Same pattern as the public-file guard above.
     "contact contact@ duplication": re.compile(r"\bcontact\s+`?contact@"),
@@ -263,6 +339,18 @@ def scan_source_file(path: Path, violations: list[str]) -> None:
                 violations.append(
                     f"{path.relative_to(ROOT)}:{line}: source-side Trojan leak '{name}' in docstring or log message"
                 )
+        for _, repo in unapproved_repos(text):
+            violations.append(
+                f"{path.relative_to(ROOT)}:{line}: github repo reference outside the approved set: '{repo}'"
+            )
+        for _, host in unapproved_hosts(text):
+            violations.append(
+                f"{path.relative_to(ROOT)}:{line}: host outside the approved set: '{host}'"
+            )
+        for _, email in unapproved_emails(text):
+            violations.append(
+                f"{path.relative_to(ROOT)}:{line}: non-approved contact email '{email}'"
+            )
 
 
 def main() -> int:

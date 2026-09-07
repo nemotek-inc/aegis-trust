@@ -8,9 +8,9 @@ below are where to go for each kind of question.
 
 | I want to… | Go to |
 |---|---|
-| Report a bug | [Open a bug report](https://github.com/Incierge3789/aegis-trust/issues/new/choose) |
-| Request a feature | [Open a feature request](https://github.com/Incierge3789/aegis-trust/issues/new/choose) |
-| Ask a usage question | [GitHub Discussions](https://github.com/Incierge3789/aegis-trust/discussions) or an issue |
+| Report a bug | [Open a bug report](https://github.com/nemotek-inc/aegis-trust/issues/new/choose) |
+| Request a feature | [Open a feature request](https://github.com/nemotek-inc/aegis-trust/issues/new/choose) |
+| Ask a usage question | [GitHub Discussions](https://github.com/nemotek-inc/aegis-trust/discussions) or an issue |
 | Report a security vulnerability | **Do not open a public issue** — follow [`SECURITY.md`](SECURITY.md) |
 | Commercial / enterprise / licensing inquiry | `contact@aegisagentcontrol.com` |
 
@@ -19,7 +19,7 @@ below are where to go for each kind of question.
 - Check the [README](README.md), the per-SDK docs ([`python/README.md`](python/README.md),
   [`node/README.md`](node/README.md)), and the **Alpha limitations** section of
   the README — several known gaps are documented there.
-- Search [existing issues](https://github.com/Incierge3789/aegis-trust/issues)
+- Search [existing issues](https://github.com/nemotek-inc/aegis-trust/issues)
   to avoid duplicates.
 - Include your SDK and version (`pip show aegis-trust` / `npm ls aegis-trust`),
   a minimal reproduction, and expected vs actual behavior.

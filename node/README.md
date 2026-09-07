@@ -51,7 +51,7 @@ npx aegis sandbox
 …or with Docker:
 
 ```bash
-git clone https://github.com/Incierge3789/aegis-trust
+git clone https://github.com/nemotek-inc/aegis-trust
 cd aegis-trust/node/examples/docker
 docker compose -f docker-compose.dev.yml up --build
 # In another shell:
@@ -252,7 +252,7 @@ Because the shield lives at the data layer, `shieldedTool().run()` / `.call()` s
 - **Modes.** In `LITE` mode the SDK applies client-side field filtering, machine-parseable errors, end-to-end trace propagation, and a local audit log. In `FULL` mode it additionally calls an `aegis-core` gateway — see [Trust-boundary scope](#trust-boundary-scope) for exactly what that boundary does and does **not** guarantee before relying on `FULL` mode for a security property.
 - **FULL-mode audit-ingest is fail-closed (aligned with Python as of 0.9.2).** In `FULL` mode, a *post-authorization* audit-ingest failure now fails **closed**: the filtered result is released to the caller only after the audit record is durably accepted, and on ingest failure the call returns a type-shaped empty (AO-003 audit completeness). rc7 and earlier returned the result anyway (fail-open on audit); that Node-only gap was reconciled in 0.9.2 (see CHANGELOG). The data path itself remains fail-closed in both SDKs.
 - **TypeScript port / parity.** This is the TypeScript port of the [`aegis-trust`](https://pypi.org/project/aegis-trust/) Python package on PyPI — same `shield()` API surface and `LITE`-mode fail-closed decorator behaviour, same local audit log. `FULL`/`AUTO` behavioural parity with the Python SDK is tracked (see CHANGELOG); the two SDKs are not yet guaranteed identical.
-- **Install / integrity.** `aegis-trust@0.9.3` is **live on npm** on the `latest` dist-tag, so bare `npm install aegis-trust` resolves to `0.9.3` (or pin `@0.9.3`). Released via Block C Trusted Publisher OIDC automation (token-free, GitHub-hosted, npm ≥11.5.1) in [`.github/workflows/release-attestation.yml`](../.github/workflows/release-attestation.yml). npm provenance (`--provenance`) is **enabled** in that workflow (the source repo is public), so `npm audit signatures` verifies the npm-side attestation. Customer-side integrity is also verifiable registry-independently via `cosign verify-blob` against the GitHub Release `v0.9.3` attached `.tgz`. The deprecated `0.9.0-rc3` (release-integrity incident F-054) is version-scoped and no longer the default.
+- **Install / integrity.** `aegis-trust@0.9.3` is **live on npm** on the `latest` dist-tag, so bare `npm install aegis-trust` resolves to `0.9.3` (or pin `@0.9.3`). Released via Block C Trusted Publisher OIDC automation (token-free, GitHub-hosted, npm ≥11.5.1) in [`.github/workflows/release-attestation.yml`](../.github/workflows/release-attestation.yml). npm provenance (`--provenance`) is **enabled** in that workflow (the source repo is public), so `npm audit signatures` verifies the npm-side attestation. Customer-side integrity is also verifiable registry-independently via `cosign verify-blob` against the GitHub Release `v0.9.3` attached `.tgz`. The deprecated `0.9.0-rc3` (withdrawn: the published artifact did not match this repo's source) is version-scoped and no longer the default.
 
 ---
 
@@ -545,4 +545,4 @@ Endpoints covered: `/health`, `/check-access`, `/audit-log`, `/shield/ingest`, `
 
 ## License
 
-MIT © Incierge — contact@aegisagentcontrol.com
+MIT © NemoTek — contact@aegisagentcontrol.com

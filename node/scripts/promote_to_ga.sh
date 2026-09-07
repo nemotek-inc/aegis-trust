@@ -5,10 +5,10 @@
 # operator must literal confirm before running):
 #   1. 5 external oracle survey: top_1_pct_readability + dx_friction_audit verifier PASS
 #      with 4/5 acceptance (productization_doctrine_complete label)
-#   2. D-952 5 architectural P0 hardening verified (sprint_002 hardening sprint close)
+#   2. The 5 architectural P0 hardening items verified (sprint_002 hardening sprint close)
 #   3. ≥ 30 day monitoring window since latest rc publish (memory feedback_distribution_*.md)
 #   4. ≥ 3 external dev usage signals (npm DL trend / GitHub issue / community feedback)
-#   5. F-014 v3 15-checklist 15/15 PASS literal
+#   5. Release-readiness v3 15-checklist 15/15 PASS literal
 #
 # What this script does (idempotent, dry-run by default):
 #   1. Verify the latest rc tag (rc5 as of 2026-05-21) still latest on npm (catch accidental re-publish)
@@ -88,7 +88,7 @@ echo ""
 echo "=== Step 5: git commit + tag + push ==="
 cd ..
 git add node/{package.json,VERSION,src/index.ts}
-git commit -m "[GA] ${AEGIS_PKG} v0.9.0 GA promotion — 5 oracle PASS + D-952 + 30d monitoring complete"
+git commit -m "[GA] ${AEGIS_PKG} v0.9.0 GA promotion — 5 oracle PASS + P0 hardening + 30d monitoring complete"
 git tag -a "v0.9.0" -m "${AEGIS_PKG} v0.9.0 GA — internal-ops sprint_002 close + 30d monitoring"
 git push origin "$(git branch --show-current)"
 git push origin v0.9.0

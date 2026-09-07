@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed — attribution updated to the current rights holder
+- The copyright holder in `LICENSE` (and the byte-identical `python/LICENSE`),
+  the vendor of record in `README.md`, the licence line in `node/README.md`, and
+  the package author metadata (`package.json` `author`) now name
+  **NemoTek**. The repository moved to the `nemotek-inc` organisation on
+  2026-09-01 and the transfer completed 2026-09-02; the published attribution
+  had not been updated to match. No code, API, or licence *terms* change — this
+  is the MIT licence with the holder stated correctly.
+- Two historical entries asserted that the Aegis IP was held personally. That is
+  no longer true, so the assertion is removed; what each release actually
+  changed is kept.
+
 ### Added — typed, fail-closed reader for the AI-native `decision` object
 - `parseAuthorityDecision(decision)` returns an `AuthorityDecisionView` (with
   `BoundaryPartialView` for its `parts`). It exposes what the AI-native wire
@@ -595,9 +607,9 @@ claims** — the worst defect class for a trust product. Source-committed on bra
 ## [0.9.1] — 2026-06-03 — package author/copyright correction (metadata only)
 
 ### Changed
-- **Package author/copyright corrected from "Incierge Inc." to "Incierge".**
-  The Aegis IP is held personally and there is no registered "Incierge Inc."
-  entity, so the prior label incorrectly implied a company. Updates the
+- **Package author/copyright label corrected.**
+  The previous label named a company that was not registered at the time, so it
+  implied a corporate entity that did not exist. Updates the
   `package.json` `author` field and the `LICENSE` copyright line. No code
   change — functionally identical to `0.9.0`; published only to correct the
   immutable package metadata on the registry.
@@ -824,7 +836,7 @@ Tier 0 follow-up. **Preview release** (`STABILITY_LEVEL = "preview"`, npm `dist-
 
 ### Why rc5 (no behaviour change on the npm side)
 
-The Python `aegis-trust@0.9.0rc5` PyPI package was published with the F-055 wheel-packaging fix (the legacy `aegis` back-compat shim was re-included after the rc4 wheel target dropped it). The PyPI shim issue is Python-specific (module rename `aegis` → `aegis_trust`); npm has no analogous concept. Bumping npm to rc5 keeps cross-SDK version-lock per the "Version-locked to PyPI" doctrine.
+The Python `aegis-trust@0.9.0rc5` PyPI package was published with the wheel-packaging fix (the legacy `aegis` back-compat shim was re-included after the rc4 wheel target dropped it). The PyPI shim issue is Python-specific (module rename `aegis` → `aegis_trust`); npm has no analogous concept. Bumping npm to rc5 keeps cross-SDK version-lock per the "Version-locked to PyPI" doctrine.
 
 ### Changed
 
@@ -836,8 +848,8 @@ No source / behavioural changes vs v0.9.0-rc4.
 
 ### Refs
 
-- F-054 published-artifact parity gate doctrine
-- F-055 wheel-packaging shim drift (PyPI-side)
+- Published-artifact parity gate doctrine (adopted after the rc3 release-integrity incident)
+- Wheel-packaging shim drift (PyPI-side)
 - Paired with PyPI `aegis-trust 0.9.0rc5`
 - T-006c-1 monorepo reconciliation (sprint_006 Tier 0) — closed the source ↔ registry drift that surfaced when `aegis-trust@0.9.0-rc5` was published to npm from `aegis-core/sdk/node-trust/` (commit `080d02cf`) without committing back to this monorepo. The published rc5 npm package was content-identical to rc4 at publish time and remains so.
 

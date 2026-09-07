@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed — attribution updated to the current rights holder
+- The copyright holder in `LICENSE` (and the byte-identical `python/LICENSE`),
+  the vendor of record in `README.md`, the licence line in `node/README.md`, and
+  the package author metadata (`pyproject.toml` `authors`) now name
+  **NemoTek**. The repository moved to the `nemotek-inc` organisation on
+  2026-09-01 and the transfer completed 2026-09-02; the published attribution
+  had not been updated to match. No code, API, or licence *terms* change — this
+  is the MIT licence with the holder stated correctly.
+- Two historical entries asserted that the Aegis IP was held personally. That is
+  no longer true, so the assertion is removed; what each release actually
+  changed is kept.
+
 ### Added — typed, fail-closed reader for the AI-native `decision` object
 - `aegis_trust.client.parse_authority_decision(decision)` returns an
   `AuthorityDecisionView` (with `BoundaryPartialView` for its `parts`). It
@@ -210,7 +222,7 @@
   (`outcome=approval_required`) per the v0 outcome contract — previously
   these live Core decision states raised `ProjectionError` and turned the
   projection red on legitimate ledgers. Unknown decisions still fail
-  closed. (Panel D-188..D-193.)
+  closed.
 
 ### Docs — honesty corrections (S022 audit remediation)
 - README supply-chain paragraph now states npm provenance is enabled
@@ -613,9 +625,9 @@ All are now closed by construction:
 ## [0.9.1] — 2026-06-03 — package author/copyright correction (metadata only)
 
 ### Changed
-- **Package author/copyright corrected from "Incierge Inc." to "Incierge".**
-  The Aegis IP is held personally and there is no registered "Incierge Inc."
-  entity, so the prior label incorrectly implied a company. Updates the
+- **Package author/copyright label corrected.**
+  The previous label named a company that was not registered at the time, so it
+  implied a corporate entity that did not exist. Updates the
   `pyproject.toml` `authors` field and the `LICENSE` copyright line. No code
   change — functionally identical to `0.9.0`; published only to correct the
   immutable package metadata on the registry.
@@ -692,16 +704,16 @@ This is also the **first release cut from the `aegis-trust` monorepo itself** (r
 
 ## [0.9.0-rc5] — 2026-05-21 — wheel-packaging fix for legacy `aegis` shim (release-integrity follow-up)
 
-Tier 0 follow-up to the F-054 release-integrity remediation. **Preview release** (`STABILITY_LEVEL = "preview"`). Public API surface is identical to rc4; this release fixes wheel packaging so the documented back-compat shim is actually shipped.
+Tier 0 follow-up to the rc3 release-integrity remediation. **Preview release** (`STABILITY_LEVEL = "preview"`). Public API surface is identical to rc4; this release fixes wheel packaging so the documented back-compat shim is actually shipped.
 
-### Fixed — `from aegis import shield` legacy shim now packaged (F-055)
+### Fixed — `from aegis import shield` legacy shim now packaged
 
 - `pyproject.toml` `[tool.hatch.build.targets.wheel] packages` updated from `["src/aegis_trust"]` to `["src/aegis_trust", "src/aegis"]`. The rc2 CHANGELOG entry promised the `aegis` back-compat shim would remain until v2.0.0, but the wheel target only included `src/aegis_trust`. `pip install aegis-trust==0.9.0rc4` therefore did not provide `import aegis` compatibility, contradicting the documented migration path.
 - Verified post-publish on the live PyPI artifact: wheel contains both `aegis_trust/__init__.py` (canonical) and `aegis/__init__.py` (shim, emits `DeprecationWarning`). `pip install aegis-trust==0.9.0rc5 && python -c "from aegis import shield"` works as documented.
 
-### Release-integrity gate (post-F-054)
+### Release-integrity gate (post-rc3 incident)
 
-The live PyPI `aegis-trust==0.9.0rc5` artifact was originally published from `aegis-shield` (commit `0419f2a`, 2026-05-18; the `e06ac9df` reference recorded at rc5 ship time was a squash-artifact hash that does not resolve in the canonical `aegis-shield` history — `git -C aegis-shield log -1 0419f2a` shows `[internal-ops/sprint_004 follow-up] rc5 wheel packaging fix for legacy aegis shim (F-055)`, the actual rc5 source commit) via the **Published Artifact Parity Gate** (5-stage: local build → record artifact hash → publish to PyPI → download from registry → verify local hash == registry hash → clean venv install → canonical import + legacy shim import + `AEGIS_BASE_URL` alias all PASS).
+The live PyPI `aegis-trust==0.9.0rc5` artifact was originally published from `aegis-shield` (commit `0419f2a`, 2026-05-18; the `e06ac9df` reference recorded at rc5 ship time was a squash-artifact hash that does not resolve in the canonical `aegis-shield` history; `0419f2a` is the actual rc5 source commit, carrying the wheel-packaging fix for the legacy `aegis` shim) via the **Published Artifact Parity Gate** (5-stage: local build → record artifact hash → publish to PyPI → download from registry → verify local hash == registry hash → clean venv install → canonical import + legacy shim import + `AEGIS_BASE_URL` alias all PASS).
 
 > **Hard rule going forward**: No release claim unless source, build config, registry artifact, clean install, and documented compatibility behavior all match.
 
@@ -713,8 +725,8 @@ The live PyPI `aegis-trust==0.9.0rc5` artifact was originally published from `ae
 
 ### Refs
 
-- F-054 release-integrity incident (published rc3 source ≠ canonical repo source)
-- F-055 wheel-packaging shim drift (rc4 wheel missed `src/aegis`, fixed in rc5)
+- Release-integrity incident (published rc3 source ≠ canonical repo source)
+- Wheel-packaging shim drift (rc4 wheel missed `src/aegis`, fixed in rc5)
 - Paired with npm `aegis-trust@0.9.0-rc5` (cross-SDK version-lock; npm rc5 is content-identical to rc4 because the wheel-shim issue is Python-specific)
 - T-006c-1 monorepo reconciliation (sprint_006 Tier 0) — closed the source ↔ registry drift that surfaced when `aegis-trust@0.9.0rc5` was published to PyPI from `aegis-shield` without committing back to this monorepo.
 
@@ -744,7 +756,7 @@ post-canonical-audit cross-SDK parity closure. **Preview release** (`STABILITY_L
 
 ### Added — `[tool.mypy]` strict configuration with documented exemptions
 
-- `pyproject.toml` `[tool.mypy]` block: `files = ["src/aegis_trust"]`, `ignore_missing_imports = true`, and `disable_error_code = ["arg-type", "no-any-return", "no-untyped-def", "attr-defined"]` for pre-existing type-narrowing tech debt in `shield.py` / `config.py` / `history.py`. Documented exemption per F-005 (no silent bypass; explicit + audit-visible). Tightening is queued for a dedicated sprint.
+- `pyproject.toml` `[tool.mypy]` block: `files = ["src/aegis_trust"]`, `ignore_missing_imports = true`, and `disable_error_code = ["arg-type", "no-any-return", "no-untyped-def", "attr-defined"]` for pre-existing type-narrowing tech debt in `shield.py` / `config.py` / `history.py`. Documented exemption (no silent bypass; explicit + audit-visible). Tightening is queued for a dedicated sprint.
 - Productization gate `type_safety` verifier compatible.
 
 ### Changed — `reset()` re-arms deprecation-warning state
@@ -843,7 +855,7 @@ TypeScript port). Public API is additive over v0.8.1; no breaking changes.
 
 ### Refs
 
-- npm SDK D-001..D-025 + sprint_002 carry-over
+- npm SDK design decisions + sprint_002 carry-over
 - Session 3 scope per kickoff handoff (PyPI port deferred from npm publish day)
 - aegis-trust feature parity: npm `@aegis_trust/sdk@0.9.0-rc1` (2026-05-18 JST)
 
@@ -897,10 +909,9 @@ and records the project's first live all-green Tier β pass
   - `sha` / `image` subcommands emit the aegis-core source SHA and
     the image's sha256 digest for attestation.
   - `AEGIS_CORE_DIR` origin remote is checked against an anchored
-    allowlist (`^(https://|git@)github\.com[:/]Incierge3789/aegis[_-]core(\.git)?$`),
-    with `AEGIS_CORE_REMOTE_ALLOWLIST` as the escape hatch. STRIDE
-    spoofing mitigation against an attacker-controlled checkout
-    sharing the directory name.
+    allowlist of canonical remote URLs, configured out of band via
+    `AEGIS_CORE_REMOTE_ALLOWLIST`. STRIDE spoofing mitigation against
+    an attacker-controlled checkout sharing the directory name.
 - `scripts/aegis-core.compose.yml` (T-159) is now runtime-only —
   build logic lives in the CLI wrapper — and carries the full dev
   env map (`AEGIS_GATEWAY_AUDIT_PATH`, `AEGIS_CAPSULE_ROOT`,
@@ -1372,7 +1383,7 @@ Pure documentation, signature, and namespace cleanup. No runtime behavior change
   - Replaced private-repo relative links (`examples/`, `docs/decisions/`, `SECURITY.md`) with `contact@aegisagentcontrol.com` contact.
 
 ### Added
-- **NOTICE file**: explicit patent reservation. MIT License grants copyright permissions only; patent rights in Aegis platform technologies are expressly reserved by Incierge. Commercial and patent licensing inquiries routed to `contact@aegisagentcontrol.com`.
+- **NOTICE file**: explicit patent reservation. MIT License grants copyright permissions only; patent rights in Aegis platform technologies are expressly reserved by the rights holder. Commercial and patent licensing inquiries routed to `contact@aegisagentcontrol.com`.
 
 ## [0.6.5.0] — 2026-04-12
 

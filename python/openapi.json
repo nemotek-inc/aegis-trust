@@ -5,11 +5,11 @@
     "description": "Minimal reference contract listing ONLY the backend endpoints the aegis-trust SDK calls in FULL mode. It exists in this repo solely so the SDK contract test can verify the client targets declared endpoints. The open-source SDK runs in LITE mode (local field reduction, no backend) by default; the backend service and its full API are NOT part of this package. Request/response schemas are intentionally omitted \u2014 this stub documents the SDK's integration surface only, not the backend's complete API.",
     "contact": {
       "name": "aegis-trust maintainers",
-      "url": "https://github.com/Incierge3789/aegis-trust"
+      "url": "https://github.com/nemotek-inc/aegis-trust"
     },
     "license": {
       "name": "MIT",
-      "url": "https://github.com/Incierge3789/aegis-trust/blob/main/LICENSE"
+      "url": "https://github.com/nemotek-inc/aegis-trust/blob/main/LICENSE"
     },
     "version": "1.0.0"
   },
