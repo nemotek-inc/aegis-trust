@@ -98,7 +98,7 @@ dev = [
     # that PR is not mergeable by moving the pin alone — the triage list is its
     # acceptance criteria. Every other gate input in this repo is pinned
     # (actions to 40-char SHAs); this is the same discipline for the linter.
-    "ruff==0.15.22",
+    "ruff==0.16.6",
     "mypy>=1.8",
     "pyyaml>=6.0",
     "pip-audit>=2.7",
