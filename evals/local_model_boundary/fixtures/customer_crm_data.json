@@ -1,0 +1,31 @@
+{
+  "customers": {
+    "cust_98214": {
+      "customer_id": "cust_98214",
+      "name": "山田 太郎",
+      "email": "yamada.t@example.com",
+      "inquiry": {
+        "ticket_id": "TCK-8821",
+        "category": "billing_dispute",
+        "message": "請求金額が先月と異なるため確認したい。内訳を教えてください。"
+      },
+      "identity": {
+        "national_id_ssn": "982-14-8832",
+        "dob": "1982-04-15",
+        "phone": "090-1234-5678"
+      },
+      "payment_method": {
+        "card_type": "Visa",
+        "card_number": "4111-2222-3333-4444",
+        "cvv": "789",
+        "expiry": "12/28",
+        "billing_zip": "100-0001"
+      },
+      "internal_crm": {
+        "vip_status": "platinum",
+        "risk_score": 0.82,
+        "confidential_memo": "社外秘: クレーム常習者。特別割引15%適用済み。社外開示厳禁。次回更新時に通常料金へ戻すこと。"
+      }
+    }
+  }
+}
