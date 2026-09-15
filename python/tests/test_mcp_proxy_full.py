@@ -11,6 +11,7 @@ AI_NATIVE_V1_CONTRACT.md).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -70,6 +71,28 @@ def gateway():
     srv.shutdown()
 
 
+def _clean_env(**extra: str) -> dict[str, str]:
+    """AEGIS の設定を一切持たない子プロセス環境。
+
+    剥がしたいのは **製品の ambient 設定** であって、interpreter が起動できる
+    かどうかではない。2026-09-15 に専用 CI host へ移して分かったこと: 環境を
+    丸ごと置き換えると、`actions/setup-python` が入れた可搬 build の python は
+
+        error while loading shared libraries: libpython3.10.so.1.0
+
+    で起動すらしない。共有 runner ではたまたま起動できていただけで、この test は
+    **その 1 種類の機械でしか成立しない形**になっていた。loader が要るものだけ
+    通し、AEGIS_* は通さない。
+    """
+    env = {"PATH": "/usr/bin:/bin"}
+    for key in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "PYTHONHOME"):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    env.update(extra)
+    return env
+
+
 def _spawn(tmp_path: Path, gateway_url: str, gate: str, policy: dict | None = None):
     server_py = tmp_path / "fake_server.py"
     server_py.write_text(FAKE_SERVER)
@@ -97,12 +120,11 @@ def _spawn(tmp_path: Path, gateway_url: str, gate: str, policy: dict | None = No
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        env={
-            "PATH": "/usr/bin:/bin",
-            "AEGIS_MODE": "full",
-            "AEGIS_URL": gateway_url,
-            "AEGIS_TOKEN": "test-token",
-        },
+        env=_clean_env(
+            AEGIS_MODE="full",
+            AEGIS_URL=gateway_url,
+            AEGIS_TOKEN="test-token",
+        ),
     )
     return proc, audit_path
 
@@ -234,7 +256,7 @@ def test_lite_mode_unchanged_no_gateway_calls(gateway, tmp_path):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        env={"PATH": "/usr/bin:/bin"},
+        env=_clean_env(),
     )
     try:
         resp = _tool_call(proc, 1, "query_business_data")

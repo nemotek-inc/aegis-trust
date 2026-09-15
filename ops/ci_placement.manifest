@@ -1,0 +1,43 @@
+# この repo の CI が「どこで走るか」の宣言。正本はこの file。
+#
+# 形式:  <workflow file> | <job> | <必須ラベル> | <根拠>
+#   `!` 行 = 宣言された例外。<workflow> | <job> | <例外のラベル> | <理由>
+#
+# なぜ在るか (2026-09-15):
+#   NemoTek IP の CI は専用 host (Azure) で走らせる。共有の runner ではなく自分の
+#   機械で回すのが目的で、速度はその副産物。ただし `runs-on:` は 1 行で書き戻せる
+#   ので、戻ったことを人ではなく門が言う必要がある。
+#   判定は scripts/ci_placement_guard.py。例外を増やす道は 1 本だけ — ここに理由を
+#   書いて commit する。
+#
+# 同じ門が lane の各 repo に置かれている。片方だけ直す事故を防ぐため、門を変える
+# なら全 repo を揃えること。
+
+audit.yml          | pip-audit    | aegis-azure | 依存の脆弱性検査
+audit.yml          | npm-audit    | aegis-azure | 依存の脆弱性検査
+audit.yml          | audit-gate   | aegis-azure | 上 2 つの集約判定
+ci.yml             | python-test  | aegis-azure | Python SDK の試験
+ci.yml             | node-test    | aegis-azure | Node SDK の試験 (版 matrix)
+ci.yml             | gitleaks     | aegis-azure | 秘密の混入検査
+ci.yml             | drift-check  | aegis-azure | 宣言と実体のずれ検査
+ci.yml             | ci-gate      | aegis-azure | 上 4 つの集約判定
+version-parity.yml | parity       | aegis-azure | 版数の一致
+
+# ── 宣言された例外: 出荷経路 ───────────────────────────────────────────────
+# release-attestation.yml は署名して公開する経路。ここは今回動かさない。
+#
+#   1. 署名する 5 job は macOS 上の鍵に紐づく (ラベルは repo 変数で切り替える形)。
+#   2. 公開する 3 job は npm / PyPI の trusted publisher を使う。OIDC の発行元を
+#      変える変更は、出荷が止まった時の切り分けを難しくする。
+#
+# 移設が定常で緑になってから、別便で 1 つずつ動かす。出荷経路と CI の移設を同じ
+# 便で混ぜない。
+! release-attestation.yml | resolve-release                  | ubuntu-latest | 出荷経路。公開 job と同じ workflow 内
+! release-attestation.yml | productization-gate              | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側
+! release-attestation.yml | sbom-node                        | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側
+! release-attestation.yml | sbom-python                      | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側
+! release-attestation.yml | collect-and-sign                 | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側
+! release-attestation.yml | pack-and-sign-sdk                | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側
+! release-attestation.yml | publish-npm-trusted-publisher    | ubuntu-latest | trusted publisher の OIDC 発行元を変えない
+! release-attestation.yml | publish-pypi-trusted-publisher   | ubuntu-latest | trusted publisher の OIDC 発行元を変えない
+! release-attestation.yml | notify-site-registry-sync        | ubuntu-latest | 出荷経路。公開 job と同じ workflow 内

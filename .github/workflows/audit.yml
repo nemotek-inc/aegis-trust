@@ -52,7 +52,7 @@ concurrency:
 
 jobs:
   pip-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, aegis-azure]
     defaults:
       run:
         working-directory: python
@@ -83,7 +83,7 @@ jobs:
         run: uv run pip-audit --strict
 
   npm-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, aegis-azure]
     defaults:
       run:
         working-directory: node
@@ -105,7 +105,7 @@ jobs:
   audit-gate:
     # Aggregator job mirroring the ci-gate pattern: a single stable check
     # name that propagates upstream job failures via `needs:`.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, aegis-azure]
     needs:
       - pip-audit
       - npm-audit
