@@ -281,6 +281,12 @@ jobs:
 
   drift-check:
     runs-on: ubuntu-latest
+    # release-attestation の invariant 6 は「owner 側の設定なのでこの file では
+    # 強制できない」と書いていた。強制はできなくても**確かめることはできる**ので、
+    # その設定を読む権限だけをこの job に与える (read のみ)。
+    permissions:
+      contents: read
+      administration: read
     defaults:
       run:
         shell: bash -euo pipefail {0}
@@ -301,6 +307,12 @@ jobs:
       # 以外に増やす道が無い。
       - name: CI の実行先が宣言どおり (ops/ci_placement.manifest)
         run: python3 scripts/ci_placement_guard.py
+
+      # 「この file では強制できない」で止めると、統制は誰にも確かめられないまま
+      # 残る。実測 2026-09-15: 書かれていた 2 つ (v* tag の作成制限 / ci-gate が
+      # 必須 check) は**どちらも実在しなかった**。毎回見る。
+      - name: release の統制が実在する (invariant 6)
+        run: python3 scripts/verify_release_controls.py
 
       - name: License byte-identity (LICENSE vs python/LICENSE)
         run: |
