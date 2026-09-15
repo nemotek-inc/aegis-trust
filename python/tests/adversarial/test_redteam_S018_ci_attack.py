@@ -269,3 +269,49 @@ def test_ci_uses_aggregator_job():
     assert set(needs) == expected_upstream, (
         f"ci-gate.needs must be exactly {sorted(expected_upstream)}; got {sorted(needs)}"
     )
+
+
+# ── Attack 9: Verify the node job installs the LOCKED tree and nothing else ──
+
+
+def test_ci_node_install_is_lockfile_exact():
+    """`npm ci` must be the whole install; no `npm install` may follow it.
+
+    This is the node-side twin of audit.yml's invariant 7, and it exists
+    because that invariant was silently broken here for months. The node-test
+    job used to append
+
+        npm install --no-save --no-package-lock @rollup/rollup-linux-x64-gnu
+
+    as a workaround for npm bug #4828. `--no-package-lock` makes npm re-resolve
+    from the ranges in `package.json` instead of the lockfile, and it did: the
+    Node 18 cell reported "added 4 packages, removed 6 packages, changed 20
+    packages" immediately after a clean `npm ci`. The suite therefore passed on
+    a dependency set nobody had committed, and the real incompatibility
+    underneath it (vitest 4 / vite 8 require node >=20.19) stayed hidden until
+    the line was removed. On Node 22 that same line crashed npm 10.9.x's
+    arborist outright, which is what kept `ci-gate` red from 2026-09-05.
+
+    Testing a tree CI resolved on the fly is the same class of defect as
+    auditing one: whatever turns green, it is not the artifact that ships.
+    """
+    ci = _load_ci()
+    steps = ci["jobs"]["node-test"]["steps"]
+    install_steps = [s for s in steps if "npm ci" in str(s.get("run", ""))]
+    assert install_steps, "node-test must install dependencies with `npm ci`"
+
+    for step in install_steps:
+        run = str(step["run"])
+        commands = [
+            line.strip()
+            for line in run.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        assert commands == ["npm ci"], (
+            "the node-test install step must run `npm ci` and nothing else — "
+            f"anything installed on top of the lockfile is untested drift; got {commands}"
+        )
+        assert "--no-package-lock" not in run, (
+            "`--no-package-lock` re-resolves from package.json ranges and "
+            "silently replaces locked versions"
+        )

@@ -127,7 +127,9 @@ jobs:
       fail-fast: false
       matrix:
         # Covers declared engines.node = ">=18" in node/package.json.
-        # LTS lines only (skips 19, 21).
+        # LTS lines only (skips 19, 21). On 18 the vitest step is skipped —
+        # the dev toolchain requires >=20.19 — and the floor is proven by
+        # build + lint + the e2e:mcp runners instead. See that step's comment.
         node-version: ['18', '20', '22']
     defaults:
       run:
@@ -174,6 +176,25 @@ jobs:
         run: npm run lint
 
       - name: vitest (full suite)
+        # Skipped on Node 18, and that is not a gap being papered over.
+        # vitest 4, vite 8 and rolldown all declare `node: ^20.19.0 || >=22.12.0`
+        # and mean it — on Node 18 vitest dies before collecting a single file:
+        #
+        #   SyntaxError: The requested module 'node:util' does not provide an
+        #   export named 'styleText'
+        #
+        # Until this step was reached, the 18 cell had never actually run the
+        # locked tree: the `npm install --no-save --no-package-lock` line that
+        # used to follow `npm ci` re-resolved it ("added 4 packages, removed 6
+        # packages, changed 20 packages" — measured), so the suite ran against
+        # versions nobody committed. Removing that line is what made this
+        # visible.
+        #
+        # What `engines.node: ">=18"` claims is that the PUBLISHED artifact runs
+        # on 18 — not that the dev toolchain does. The 18 cell still proves that
+        # claim, through `npm ci` + build + lint + the e2e:mcp runners below,
+        # all of which pass there against the locked tree.
+        if: matrix.node-version != '18'
         working-directory: node
         run: npm test
 
