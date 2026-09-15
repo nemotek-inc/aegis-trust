@@ -187,12 +187,12 @@ def _selftest() -> int:
         f.write_text(body, encoding="utf-8")
 
     WF_OK = ("name: t\non:\n  pull_request:\njobs:\n"
-             "  heavy:\n    runs-on: [self-hosted, linux, aegis-azure]\n"
+             "  heavy:\n    runs-on: [self-hosted, linux, dedicated-host]\n"
              "    steps:\n      - run: true\n")
     WF_BACK_ON_WORKSTATION = ("name: t\non:\n  pull_request:\njobs:\n"
                               "  heavy:\n    runs-on: [self-hosted, macos-arm64, aegis-local]\n"
                               "    steps:\n      - run: true\n")
-    MAN_OK = "w.yml | heavy | aegis-azure | 専用 host\n"
+    MAN_OK = "w.yml | heavy | dedicated-host | 専用 host\n"
 
     with tempfile.TemporaryDirectory() as td:
         t = Path(td)
@@ -219,7 +219,7 @@ def _selftest() -> int:
         # 宣言が実在しない job を指している = 消した job の宣言だけが残る形。
         d = t / "d"
         write(d, ".github/workflows/w.yml", WF_OK)
-        write(d, "ops/ci_placement.manifest", MAN_OK + "w.yml | gone | aegis-azure | 消えた job\n")
+        write(d, "ops/ci_placement.manifest", MAN_OK + "w.yml | gone | dedicated-host | 消えた job\n")
         ck("宣言が実在しない job を指していれば落ちる", 1, run(d))
 
         # 例外に理由が無い = 黙って例外を増やす道。

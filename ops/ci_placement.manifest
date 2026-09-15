@@ -4,7 +4,7 @@
 #   `!` 行 = 宣言された例外。<workflow> | <job> | <例外のラベル> | <理由>
 #
 # なぜ在るか (2026-09-15):
-#   NemoTek IP の CI は専用 host (Azure) で走らせる。共有の runner ではなく自分の
+#   NemoTek IP の CI は専用 host で走らせる。共有の runner ではなく自分の
 #   機械で回すのが目的で、速度はその副産物。ただし `runs-on:` は 1 行で書き戻せる
 #   ので、戻ったことを人ではなく門が言う必要がある。
 #   判定は scripts/ci_placement_guard.py。例外を増やす道は 1 本だけ — ここに理由を
