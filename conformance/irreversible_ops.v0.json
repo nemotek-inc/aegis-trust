@@ -256,7 +256,9 @@
       "gate": null,
       "confirmation_step": null,
       "test": null,
-      "note": "One call from the shipped package reaches an irreversible transition. Not re-exported from __init__.py or client.py, so it is not top-level public API — but INV-7 is written against reachable effect. Remediation (a gate, an explicit opt-in, or removing the subtree from the wheel) changes a shipped surface and is a product decision recorded for the operator, not something a test may decide."
+      "note": "One call from the shipped package reaches an irreversible transition FOR A CALLER HOLDING ADMIN. An unprivileged caller importing the generated client gets 403, so the earlier reading — that any installed aegis-trust reaches destruction — overstated it. What remains, and what INV-7 is about, is that no second step stands between one Admin call and an irreversible effect. Remediation (a gate, an explicit opt-in, or removal) narrows a shipped API surface and is an owner decision, not an SDK one.",
+      "server_side_authorization": "Authenticated (Extension<AuthContext>) + Role::Admin via can_execute_destructive(); 403 Forbidden otherwise, re-checked inside handle_trigger_destroy_pub as declared defence-in-depth. Measured in aegis-boundary-core (rest.rs route/handler) by the Core implementer and REPORTED HERE, not verified from this repository — nothing in aegis-trust CI can see that code, so this is attribution, not measurement.",
+      "why_not_recorded_as_gate": "Because `gate` is load-bearing: test_irreversible_ops.py counts an entry with a truthy `gate` or `confirmation_step` as gated and removes it from the exposed set. Authorization is not the opt-in INV-7 requires — its statement is 'no single call causes an irreversible transition; irreversible destruction requires explicit opt-in', and an Admin who mistypes a capsule id still destroys it in one call. Writing a true fact into that field would have closed the hole in the guard's view without closing it."
     }
   },
   "node_asymmetry": {

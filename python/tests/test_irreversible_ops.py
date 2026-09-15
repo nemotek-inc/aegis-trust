@@ -180,3 +180,46 @@ def test_recall_is_two_step_and_destroy_is_not() -> None:
         "destroy_capsule is no longer recorded as ungated — if it gained a gate, "
         "move it out deliberately and record what gates it"
     )
+
+
+def test_authorization_is_not_recorded_as_a_gate() -> None:
+    """Recording a true fact must not close the hole in the guard's view.
+
+    `gated` is computed as "entry has a truthy `gate` or `confirmation_step`",
+    and `exposed` subtracts it. So writing the server-side authorization
+    (authenticated + Role::Admin, 403 otherwise) into `gate` would move
+    `destroy_capsule` out of the exposed set — and INV-7 would look upheld
+    without anything having changed.
+
+    It has not changed. INV-7's statement is "no single call causes an
+    irreversible transition; irreversible destruction requires explicit opt-in".
+    Authorization is not an opt-in: an Admin who mistypes a capsule id still
+    destroys it in one call. The authorization is recorded in its own field and
+    this pins that it stayed there.
+
+    WHEN THIS FAILS: someone has added a real opt-in or confirmation step. Good
+    — update this test to say which, rather than deleting it.
+    """
+    entry = UNGATED["destroy_capsule"]
+    assert entry.get("server_side_authorization"), (
+        "the measured authorization is no longer recorded; it is the reason the "
+        "hole is narrower than 'any installed package can destroy'"
+    )
+    assert not entry.get("gate"), (
+        "authorization was written into `gate`, which removes destroy_capsule "
+        "from the exposed set. INV-7 requires an explicit opt-in, not a role check"
+    )
+    assert not entry.get("confirmation_step"), (
+        "a confirmation step is claimed but INV-7 enforcement still reads 'none'"
+    )
+
+    irreversible = {n for n, op in OPERATIONS.items() if op["class"] == "irreversible"}
+    two_step = {n for n, op in OPERATIONS.items() if op["class"] == "two_step"}
+    gated = {
+        n for n, e in UNGATED.items() if e.get("gate") or e.get("confirmation_step")
+    }
+    assert "destroy_capsule" in (irreversible - two_step - gated), (
+        "destroy_capsule is no longer counted as an exposed irreversible "
+        "single call. If that is because it was genuinely gated, move INV-7's "
+        "sdk enforcement off 'none' in the same change"
+    )

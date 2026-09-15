@@ -81,6 +81,46 @@
           }
         }
       }
+    },
+    {
+      "corpus": "attest_verify.v0.json",
+      "exercises": "the shipped Core-attestation verifier: the canonical-message rebuild, the signature and signing-key pins, host / nonce / freshness, the silence checks (a ledger head that did not advance, and a report that never arrived), and the expected-inventory comparison Core explicitly does not make",
+      "runners": {
+        "python": {
+          "path": "python/tests/test_attest_verify_corpus.py",
+          "must_import": {
+            "module": "aegis_trust.attest_verify",
+            "symbol": "verify_attestation"
+          }
+        },
+        "node": {
+          "path": "node/tests/attestVerifyCorpus.test.ts",
+          "must_import": {
+            "module": "../src/attestVerify.js",
+            "symbol": "verifyAttestation"
+          }
+        }
+      }
+    },
+    {
+      "corpus": "ed25519_vectors.v0.json",
+      "exercises": "the shipped Ed25519 verification the attestation signature check rests on. The two SDKs reach it differently — OpenSSL via node:crypto on one side, RFC 8032 in Python int arithmetic on the other, because the LITE install is dependency-free by contract — so what they must agree on is written down rather than assumed",
+      "runners": {
+        "python": {
+          "path": "python/tests/test_ed25519_corpus.py",
+          "must_import": {
+            "module": "aegis_trust.attest_verify",
+            "symbol": "ed25519_verify"
+          }
+        },
+        "node": {
+          "path": "node/tests/ed25519Corpus.test.ts",
+          "must_import": {
+            "module": "../src/ed25519.js",
+            "symbol": "ed25519Verify"
+          }
+        }
+      }
     }
   ],
   "forbidden_imports": {

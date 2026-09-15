@@ -101,4 +101,44 @@ describe("INV-7 SDK form — Node irreversibility surface", () => {
       expect(entry.note, `${name}: ungated with no note`).toBeTruthy();
     }
   });
+
+  it("authorization is not recorded as a gate", () => {
+    // Recording a true fact must not close the hole in the guard's view.
+    // `gated` is "entry has a truthy gate or confirmation_step", and `exposed`
+    // subtracts it — so writing the server-side authorization (authenticated +
+    // Role::Admin, 403 otherwise) into `gate` would move destroy_capsule out of
+    // the exposed set, and INV-7 would look upheld without anything changing.
+    //
+    // INV-7 requires an explicit opt-in, not a role check: an Admin who
+    // mistypes a capsule id still destroys it in one call.
+    //
+    // WHEN THIS FAILS: someone added a real opt-in or confirmation step. Good —
+    // update this test to say which, rather than deleting it.
+    const ungated = registry.ungated_single_call as Record<string, unknown>;
+    const entry = ungated["destroy_capsule"] as Record<string, unknown>;
+    expect(
+      entry.server_side_authorization,
+      "the measured authorization is no longer recorded",
+    ).toBeTruthy();
+    expect(
+      entry.gate,
+      "authorization was written into `gate`, which removes destroy_capsule from the exposed set",
+    ).toBeFalsy();
+    expect(entry.confirmation_step).toBeFalsy();
+
+    const irreversible = Object.entries(registry.operations as Record<string, unknown>)
+      .filter(([, op]) => (op as { class: string }).class === "irreversible")
+      .map(([n]) => n);
+    const gated = Object.entries(ungated)
+      .filter(([, e]) => {
+        const v = e as Record<string, unknown>;
+        return Boolean(v.gate) || Boolean(v.confirmation_step);
+      })
+      .map(([n]) => n);
+    expect(
+      irreversible.includes("destroy_capsule") && !gated.includes("destroy_capsule"),
+      "destroy_capsule is no longer an exposed irreversible single call. If it "
+        + "was genuinely gated, move INV-7's sdk enforcement off 'none' too",
+    ).toBe(true);
+  });
 });

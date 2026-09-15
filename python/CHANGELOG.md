@@ -2,6 +2,86 @@
 
 ## [Unreleased]
 
+### Added — Core attestation verifier (S051 ③; both SDKs)
+- `aegis_trust.attest_verify` — verifies an Aegis Core attestation **and nothing else**. It never
+  opens the capsule directory: two implementations answering one question about
+  one disk is how a customer gets told two different things. Wire contract:
+  `aegis-boundary-core/docs/ATTESTATION_CONTRACT.md`; guide:
+  `docs/ATTESTATION_VERIFY.md`.
+- 17 checks on the document, plus a report-arrived timer on the SDK's own
+  clock; any one of them failing is an anomaly (the verifier does not weigh
+  them): the document shape, a signature being present, the canonical message
+  rebuilt field by field and verified under it, `message_sha256`, the pinned
+  signing key, the pinned host, the nonce echo, freshness, Core's own `abnormal`
+  list, the chain status, and the three that need a baseline — the ledger head
+  advanced, it advanced *forward* (a new head hash), and it is still the same
+  ledger (genesis unchanged) — plus `judged_nonzero`, the payload being intact,
+  the metadata being self-consistent, and the expected-inventory comparison.
+- **Silence is the failure mode this exists for.** A boundary that has stopped
+  writing records produces an attestation that looks calm — nothing abnormal,
+  chain valid, no losses, correctly signed, fresh — and only "the same head as
+  last time, again" separates it from a healthy one. `AttestState` / `load_state` / `save_state` holds the
+  previous observation; an absent state file makes those checks report **skip**
+  (never pass), a corrupt one is **refused** rather than treated as a fresh
+  start, and `require_previous` makes a missing baseline a failure. The stored baseline
+  is monotone on two axes independently (highest verified ledger head, most
+  recent attestation), so a genuinely signed *old* attestation cannot roll it
+  back. `report_arrived_check` raises the report that never arrived, on the SDK's own clock.
+- **A check that did not run is not a check that passed.** Every check reports
+  `pass` / `fail` / `skip` with a reason, skips are printed rather than folded
+  into the green, and when the signature does not verify every content check
+  reports `skip` — "9 of 11 checks passed" on a forged document is a sentence no
+  operator should be shown (S012).
+- Honesty boundary, restated from contract §6: the attestation does not prove
+  **decryptability** (bodies are AEAD-sealed against the sealing host) and does
+  not prove **completeness** — twenty capsules reduced to one attests as
+  `judged: 1` and is otherwise clean, so `AttestExpectation.capsule_ids` is where the expected set
+  goes and leaving it unset makes `inventory` report `skip`.
+- Building this verifier found two defects in the wire contract, both fixed on
+  the Core side before merge. `records_checked`, `first_break` and
+  `skipped_non_capsule` sat outside the canonical message: none could
+  manufacture false reassurance (`judged` and the findings digest were already
+  signed), but `skipped_non_capsule` is the only window onto what was **not**
+  counted, and blanking it hid "nineteen files under the root were skipped"
+  while verification still succeeded. The nonce was also unvalidated, so a
+  challenge containing a newline could restructure the signed message's lines.
+  Core moved the three fields inside the message and now refuses a malformed
+  nonce at its entrance.
+- `UNSIGNED_FIELDS` is what remains outside the signature: `signature.key_id` alone.
+  Pinning it catches a rotation that moved the key without the label and catches
+  nothing an attacker does. The list is measured rather than described — a test
+  mutates every other field in a signed attestation and requires the signature
+  to break, then mutates the declared ones and requires it to hold, so a future
+  contract change cannot leave the list stale in either direction.
+- CLI `aegis attest-verify`, exit 0 clean / 1 abnormal / **2 no report could be
+  obtained** — kept distinct, because "I could not report" is not "I found
+  problems". An unsigned attestation is 1, not 2: it is a report, an
+  unauthenticable one.
+- Ed25519 verification is `aegis_trust._ed25519`, RFC 8032 in `int` arithmetic:
+  `pip install aegis-trust` is dependency-free by contract and Python has no
+  Ed25519 in its standard library, so pulling in `cryptography` for this would
+  break the packaging invariant for every user who never verifies an
+  attestation. **Verification only, and it must stay that way** — verification
+  touches no secret, which is exactly why hand-implementing it is safe and a
+  signing counterpart would not be. Pinned by
+  `conformance/ed25519_vectors.v0.json` (17 vectors: the RFC 8032 known
+  answers, a real `ed25519-dalek` signature from the shipped Core binary, and
+  rejections including the unreduced scalar `S + L`), which the Node SDK reads
+  too so the two implementations cannot drift apart.
+- Non-vacuity: `conformance/attest_verify.v0.json` (53 cases + 4 timer cases)
+  carries the whole verdict — every check identifier, outcome and detail
+  sentence — and both SDKs assert against it, so they cannot drift into
+  describing one attestation two ways. Each case carries a hand-written `must`
+  that the generator and both runners enforce; both runners assert that **every
+  one of the 17 checks has a rejecting case and an accepting case**; and
+  `scripts/attest_verify_mutation_battery.py` breaks the shipped verifier on
+  purpose and requires the suites to go red (15/15 caught). The byte-level pin is
+  four attestations produced by the real `aegis-gateway` binary — three signed by
+  `ed25519-dalek` and one deliberately unsigned — one of them carrying a capsule
+  id outside ASCII — Rust's `str::len()` counts bytes, so
+  a verifier that length-prefixed the findings digest by character count would
+  agree on every ASCII capsule and diverge on the first one that is not.
+
 ### Changed — attribution updated to the current rights holder
 - The copyright holder in `LICENSE` (and the byte-identical `python/LICENSE`),
   the vendor of record in `README.md`, the licence line in `node/README.md`, and

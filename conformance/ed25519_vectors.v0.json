@@ -1,0 +1,161 @@
+{
+  "$comment": "Ed25519 verification vectors, v0.\n\nWHY A CORPUS FOR A PRIMITIVE.\nThe two SDKs verify Ed25519 by different routes, and they have to. The Node SDK\nhands the work to OpenSSL through node:crypto. The Python SDK cannot: `pip\ninstall aegis-trust` is dependency-free by contract\n(python/tests/test_lite_zero_dep.py pins it), Python has no Ed25519 in its\nstandard library, and adding a crypto dependency to the LITE path so that a\nsmall number of users can verify an attestation would break the invariant for\neveryone else. So python/src/aegis_trust/_ed25519.py implements RFC 8032\nverification in `int` arithmetic.\n\nTwo implementations of one primitive is exactly the condition in which they\nquietly stop agreeing. This file is where the agreement is written down, and\nboth read it:\n\n  python/tests/test_ed25519_corpus.py\n  node/tests/ed25519Corpus.test.ts\n\nWHAT IS IN HERE.\n  - The four RFC 8032 section 7.1 known-answer vectors. These are the only\n    inputs in this repo whose correct answer was decided by someone other than\n    us.\n  - A real ed25519-dalek signature over a real Core attestation's canonical\n    message, straight out of the shipped aegis-gateway binary. An\n    implementation that passed the RFC vectors and still disagreed with dalek\n    in practice would fail here.\n  - Rejection vectors for each failure class that matters: a flipped message\n    bit, a flipped bit in each half of the signature (R and S take different\n    code paths), a substituted key, a signature from a different key, an\n    all-zero signature, wrong lengths in both directions, a non-canonical\n    public-key encoding (y = p + 1), and the unreduced scalar S + L.\n\nTHE ONE WORTH READING TWICE.\n`unreduced-scalar-s-plus-l` satisfies the verification equation. A verifier\nthat omits the S < L check of RFC 8032 section 5.1.7 accepts it, and then a\nsingle message has two valid signatures by the same key — which breaks anything\nthat treats a signature as an identifier. Both implementations reject it:\nOpenSSL enforces the canonical scalar, and the Python code checks explicitly.\nThat was measured, not assumed, before this vector was added.\n\nSIGNING IS NOT HERE, AND MUST NOT BE.\nThere is no signing code in either SDK. Verification touches only public values,\nso the Python implementation's lack of constant-time behaviour costs nothing; a\nsigning counterpart would handle a secret scalar in Python `int` arithmetic and\nleak it through timing. The asymmetry is the reason the verification half is\nsafe to hand-implement and the signing half never would be.\n\nWHAT THIS CORPUS DOES NOT SETTLE.\nSmall-order public keys are accepted by both implementations, because OpenSSL\naccepts them and a divergence about what \"valid\" means would be worse than the\nproperty is worth here. Nothing depends on it: the attestation verifier pins the\nexpected public key by value, so a small-order key could only be reached by an\noperator pinning one.",
+  "version": 0,
+  "algorithm": "ed25519",
+  "verification_equation": "RFC 8032 section 5.1.7, cofactorless",
+  "vectors": [
+    {
+      "id": "rfc8032-1-empty-message",
+      "doc": "RFC 8032 section 7.1 known-answer vector. Must verify.",
+      "source": "rfc8032-7.1",
+      "public_key_hex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "message_hex": "",
+      "signature_hex": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+      "expected_valid": true
+    },
+    {
+      "id": "rfc8032-2-one-byte",
+      "doc": "RFC 8032 section 7.1 known-answer vector. Must verify.",
+      "source": "rfc8032-7.1",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "72",
+      "signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+      "expected_valid": true
+    },
+    {
+      "id": "rfc8032-3-two-bytes",
+      "doc": "RFC 8032 section 7.1 known-answer vector. Must verify.",
+      "source": "rfc8032-7.1",
+      "public_key_hex": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "message_hex": "af82",
+      "signature_hex": "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a",
+      "expected_valid": true
+    },
+    {
+      "id": "rfc8032-4-sha512-abc",
+      "doc": "RFC 8032 section 7.1 known-answer vector. Must verify.",
+      "source": "rfc8032-7.1",
+      "public_key_hex": "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "message_hex": "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+      "signature_hex": "dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b58909351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704",
+      "expected_valid": true
+    },
+    {
+      "id": "message-bit-flipped",
+      "doc": "RFC vector 2 with one bit flipped in the message. Must NOT verify.",
+      "source": "derived-from-rfc8032-2",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "73",
+      "signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+      "expected_valid": false
+    },
+    {
+      "id": "signature-r-half-bit-flipped",
+      "doc": "One bit flipped in the R half of the signature. The R and S halves take different code paths (point decompression vs scalar reduction), so both are exercised.",
+      "source": "derived-from-rfc8032-2",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "72",
+      "signature_hex": "92a009a8f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+      "expected_valid": false
+    },
+    {
+      "id": "signature-s-half-bit-flipped",
+      "doc": "One bit flipped in the S half of the signature. Must NOT verify.",
+      "source": "derived-from-rfc8032-2",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "72",
+      "signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e448f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+      "expected_valid": false
+    },
+    {
+      "id": "public-key-bit-flipped",
+      "doc": "One bit flipped in the public key — the attacker-substitutes-a-key shape at the primitive level.",
+      "source": "derived-from-rfc8032-2",
+      "public_key_hex": "3d4017c3e842895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "72",
+      "signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+      "expected_valid": false
+    },
+    {
+      "id": "signature-from-a-different-key",
+      "doc": "RFC vector 3's signature offered against RFC vector 2's key.",
+      "source": "derived-from-rfc8032",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "72",
+      "signature_hex": "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a",
+      "expected_valid": false
+    },
+    {
+      "id": "all-zero-signature",
+      "doc": "64 zero bytes. R decodes to the identity and S is zero — the degenerate input a verifier that only length-checked would accept.",
+      "source": "constructed",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "72",
+      "signature_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "expected_valid": false
+    },
+    {
+      "id": "unreduced-scalar-s-plus-l",
+      "doc": "The malleability window RFC 8032 section 5.1.7 closes: S replaced by S+L, which satisfies the verification equation but is not a canonical scalar. A verifier without the S < L check accepts it, and then one message has two valid signatures. Both SDKs must reject it — OpenSSL does, and the Python implementation checks explicitly.",
+      "source": "constructed",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "72",
+      "signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69daf52db7415978abc61b2c2eb6aeebfca0387b2eaeb4302aeeb00d291612bb0c10",
+      "expected_valid": false
+    },
+    {
+      "id": "non-canonical-public-key-encoding",
+      "doc": "A public key whose y coordinate is p+1 — outside the field, so the encoding is not canonical. Rejected rather than silently reduced.",
+      "source": "constructed",
+      "public_key_hex": "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "message_hex": "72",
+      "signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+      "expected_valid": false
+    },
+    {
+      "id": "public-key-too-short",
+      "doc": "31 bytes where 32 are required.",
+      "source": "constructed",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af466",
+      "message_hex": "72",
+      "signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+      "expected_valid": false
+    },
+    {
+      "id": "signature-too-short",
+      "doc": "63 bytes where 64 are required.",
+      "source": "constructed",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "72",
+      "signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c",
+      "expected_valid": false
+    },
+    {
+      "id": "signature-too-long",
+      "doc": "65 bytes — a trailing byte a length-tolerant verifier would ignore.",
+      "source": "constructed",
+      "public_key_hex": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "message_hex": "72",
+      "signature_hex": "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c0000",
+      "expected_valid": false
+    },
+    {
+      "id": "core-binary-attestation-message",
+      "doc": "A real ed25519-dalek signature over a real Core attestation's canonical message, produced by the shipped aegis-gateway binary. A primitive that passed the RFC vectors but disagreed with dalek in practice would still fail here.",
+      "source": "core-binary",
+      "public_key_hex": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "message_hex": "61656769732d6174746573742d76310a67656e6572617465645f61743d323032362d30392d31345431323a35333a30362e3030393433352b30303a30300a686f73743d686f73745f303030303030303030303030303030300a726f6f743d2f746d702f61656769732d6174746573742d766563746f72732f63617073756c65730a6e6f6e63653d73646b2d636f6e74726163742d3030310a6a75646765643d340a7061796c6f61645f6d697373696e673d310a696e636f6e73697374656e743d310a636861696e5f7374617475733d6e6f742d636865636b65640a636861696e5f6c6173745f7365713d300a636861696e5f637572725f686173683d0a636861696e5f67656e657369733d0a636861696e5f7265636f7264735f636865636b65643d300a636861696e5f66697273745f627265616b3d0a736b69707065645f6e6f6e5f63617073756c653d6f70657261746f725f6e6f7465732e6a736f6e0a73656c665f6c696d69743d0a66696e64696e67735f7368613235363d343436656337343135353831313835663062313466636265316130343839643863616530303139353262626631396435663263636635623565346133313438610a61626e6f726d616c3d312063617073756c652873292068617665206e6f207061796c6f6164206f6e206469736b3b312063617073756c652873292064697361677265652077697468207468656972207265636f726465642073746174653b74686520617564697420636861696e20776173206e6f7420636865636b656420e28094206e6f206c656467657220706174682077617320737570706c6965640a",
+      "signature_hex": "742212310b683d6092ded1c787b7a267eb390b289a2e6c17a35030bbbbad31fd03aac5eb538976c0904aad9d1f090a03539da3b6012f10f96bfeed7604024c08",
+      "expected_valid": true
+    },
+    {
+      "id": "core-binary-attestation-message-one-byte-changed",
+      "doc": "The same real signature against a canonical message with a single byte changed — the whole point of signing the message rather than trusting the JSON.",
+      "source": "derived-from-core-binary",
+      "public_key_hex": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "message_hex": "61656769732d6174746573742d76310a67656e6573617465645f61743d323032362d30392d31345431323a35333a30362e3030393433352b30303a30300a686f73743d686f73745f303030303030303030303030303030300a726f6f743d2f746d702f61656769732d6174746573742d766563746f72732f63617073756c65730a6e6f6e63653d73646b2d636f6e74726163742d3030310a6a75646765643d340a7061796c6f61645f6d697373696e673d310a696e636f6e73697374656e743d310a636861696e5f7374617475733d6e6f742d636865636b65640a636861696e5f6c6173745f7365713d300a636861696e5f637572725f686173683d0a636861696e5f67656e657369733d0a636861696e5f7265636f7264735f636865636b65643d300a636861696e5f66697273745f627265616b3d0a736b69707065645f6e6f6e5f63617073756c653d6f70657261746f725f6e6f7465732e6a736f6e0a73656c665f6c696d69743d0a66696e64696e67735f7368613235363d343436656337343135353831313835663062313466636265316130343839643863616530303139353262626631396435663263636635623565346133313438610a61626e6f726d616c3d312063617073756c652873292068617665206e6f207061796c6f6164206f6e206469736b3b312063617073756c652873292064697361677265652077697468207468656972207265636f726465642073746174653b74686520617564697420636861696e20776173206e6f7420636865636b656420e28094206e6f206c656467657220706174682077617320737570706c6965640a",
+      "signature_hex": "742212310b683d6092ded1c787b7a267eb390b289a2e6c17a35030bbbbad31fd03aac5eb538976c0904aad9d1f090a03539da3b6012f10f96bfeed7604024c08",
+      "expected_valid": false
+    }
+  ]
+}
