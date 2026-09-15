@@ -13,15 +13,29 @@
 # 同じ門が lane の各 repo に置かれている。片方だけ直す事故を防ぐため、門を変える
 # なら全 repo を揃えること。
 
-audit.yml          | pip-audit    | aegis-azure | 依存の脆弱性検査
-audit.yml          | npm-audit    | aegis-azure | 依存の脆弱性検査
-audit.yml          | audit-gate   | aegis-azure | 上 2 つの集約判定
-ci.yml             | python-test  | aegis-azure | Python SDK の試験
-ci.yml             | node-test    | aegis-azure | Node SDK の試験 (版 matrix)
-ci.yml             | gitleaks     | aegis-azure | 秘密の混入検査
-ci.yml             | drift-check  | aegis-azure | 宣言と実体のずれ検査
-ci.yml             | ci-gate      | aegis-azure | 上 4 つの集約判定
-version-parity.yml | parity       | aegis-azure | 版数の一致
+# ── この repo だけ既定が ubuntu-latest である理由 (2026-09-15) ──────────────
+# **この repo は public で、fork も許可されている。** self-hosted runner に
+# 切り替えると、fork からの PR が我々の機械の上で任意のコードを実行できる。
+# `.github/workflows/ci.yml` の SAFETY INVARIANT 5 がまさにそれを書いている。
+#
+# 2026-09-15 に一度 self-hosted へ切り替えて merge した。誤りだったので戻した
+# (承認方針も all_external_contributors へ締めた)。settings を締めれば invariant
+# の条件は満たせるが、この host は **使い捨てではなく**、他の private repo の
+# build cache と同居している。承認 1 回で外部のコードがそこへ届く形は、移設で
+# 得るものに見合わない。
+#
+# 専用 host へ移すなら先に要るもの: 使い捨て (ephemeral) runner、または
+# この repo 専用に隔離された host。それまでは ubuntu-latest が既定。
+
+audit.yml          | pip-audit    | ubuntu-latest | 依存の脆弱性検査
+audit.yml          | npm-audit    | ubuntu-latest | 依存の脆弱性検査
+audit.yml          | audit-gate   | ubuntu-latest | 上 2 つの集約判定
+ci.yml             | python-test  | ubuntu-latest | Python SDK の試験
+ci.yml             | node-test    | ubuntu-latest | Node SDK の試験 (版 matrix)
+ci.yml             | gitleaks     | ubuntu-latest | 秘密の混入検査
+ci.yml             | drift-check  | ubuntu-latest | 宣言と実体のずれ検査
+ci.yml             | ci-gate      | ubuntu-latest | 上 4 つの集約判定
+version-parity.yml | parity       | ubuntu-latest | 版数の一致
 
 # ── 宣言された例外: 出荷経路 ───────────────────────────────────────────────
 # release-attestation.yml は署名して公開する経路。ここは今回動かさない。
