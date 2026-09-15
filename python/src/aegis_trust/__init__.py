@@ -34,6 +34,17 @@ from aegis_trust.errors import (
     AegisStreamRevoked,
     aegis_docs_url,
 )
+from aegis_trust.attest_verify import (
+    AttestCheck,
+    AttestExpectation,
+    AttestState,
+    AttestVerdict,
+    advance_state,
+    load_state,
+    report_arrived_check,
+    save_state,
+    verify_attestation,
+)
 from aegis_trust.receipt_verify import (
     compute_lineage_root,
     dangling_prior_receipt_refs,
@@ -77,6 +88,17 @@ __all__ = [
     "dangling_prior_receipt_refs",
     "compute_lineage_root",
     "verify_lineage_root",
+    # Core attestation verification (S051 (3)). The SDK verifies Core's
+    # statement about a disk; it never re-derives one of its own.
+    "verify_attestation",
+    "report_arrived_check",
+    "advance_state",
+    "load_state",
+    "save_state",
+    "AttestExpectation",
+    "AttestState",
+    "AttestVerdict",
+    "AttestCheck",
     "AEGIS_API_VERSION",
     "AEGIS_API_VERSION_HEADER",
     "AUDIT_SCHEMA_VERSION",

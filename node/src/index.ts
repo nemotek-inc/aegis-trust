@@ -179,3 +179,40 @@ export {
   verifyLineageRoot,
   verifySessionReceiptStructure,
 } from "./receiptVerify.js";
+
+// Core attestation verification (S051 ③). The SDK verifies Core's statement
+// about a disk; it never re-derives one of its own. See
+// docs/ATTESTATION_VERIFY.md and aegis-boundary-core/docs/ATTESTATION_CONTRACT.md.
+export {
+  ALL_CHECKS,
+  ATTEST_MESSAGE_PREFIX,
+  EXIT_ABNORMAL,
+  EXIT_CLEAN,
+  EXIT_NO_REPORT,
+  MAX_SAFE_INTEGER,
+  STATE_SCHEMA,
+  UNSIGNED_FIELDS,
+  AttestFormatError,
+  AttestStateError,
+  advanceState,
+  canonicalMessage,
+  ed25519Verify,
+  findingsDigest,
+  loadState,
+  parseAttestation,
+  parseRfc3339Ms,
+  reportArrivedCheck,
+  saveState,
+  stateFromJSON,
+  stateToJSON,
+  verifyAttestation,
+  type AttestCheck,
+  type AttestExpectation,
+  type AttestSignature,
+  type AttestState,
+  type AttestVerdict,
+  type Attestation,
+  type CapsuleFinding,
+  type ChainReport,
+  type CheckOutcome,
+} from "./attestVerify.js";

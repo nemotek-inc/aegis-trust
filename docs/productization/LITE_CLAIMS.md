@@ -72,8 +72,26 @@ closed — present on **both** sides and pinned by a shared conformance corpus
 (see §1). The boundary-receipt passthrough also exists on both sides (see §3).
 No named LITE API parity gap remains at the time of writing.
 
+**Named asymmetry (not a LITE gap, but stated here because this section
+promises that any one-sided surface is tracked rather than silently claimed on
+both):** the Python package ships a generated gateway client, and Node does not.
+One consequence is customer-facing: `destroy_capsule` is importable from an
+installed `aegis-trust` (PyPI) and reaches `POST /capsules/{id}/destroy` — an
+irreversible transition, behind Admin authorization server-side, with no second
+step. The npm package has no such surface at all. This is FULL-mode territory
+rather than the LITE API the rest of this section is about, which is why it is
+not counted as a LITE parity gap — but "no LITE gap remains" should not be read
+as "the two packages can cause the same things." Tracked in
+`conformance/invariants.v0.json` (INV-7, `asymmetry`: *structural and severe*)
+and classified in `conformance/irreversible_ops.v0.json`; the Node side is held
+by `node/tests/irreversibleOps.test.ts`, which fails if an irreversible surface
+is ever added there.
+
 **Never-claim:** "the SDKs are identical byte-for-byte." Parity means the
 public contract and deny semantics track each other, with Python canonical.
+
+**Never-claim:** "the two packages have the same reachable effect." They do not:
+see the named asymmetry above.
 
 ---
 
