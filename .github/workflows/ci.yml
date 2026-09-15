@@ -127,7 +127,9 @@ jobs:
       fail-fast: false
       matrix:
         # Covers declared engines.node = ">=18" in node/package.json.
-        # LTS lines only (skips 19, 21).
+        # LTS lines only (skips 19, 21). On 18 the vitest step is skipped —
+        # the dev toolchain requires >=20.19 — and the floor is proven by
+        # build + lint + the e2e:mcp runners instead. See that step's comment.
         node-version: ['18', '20', '22']
     defaults:
       run:
@@ -145,14 +147,25 @@ jobs:
 
       - name: npm ci
         working-directory: node
-        run: |
-          npm ci
-          # Workaround for npm bug #4828: package-lock.json was generated on
-          # a non-Linux-x64 platform (macOS arm64) and omits the platform-
-          # specific Rollup binary required on this runner. `npm ci` does not
-          # backfill missing optional deps. Install it explicitly so vitest /
-          # tsc / vite-driven tooling can find Rollup at run time.
-          npm install --no-save --no-package-lock @rollup/rollup-linux-x64-gnu
+        # Nothing is installed on top of the lockfile here, deliberately. This
+        # step used to append `npm install --no-save --no-package-lock
+        # @rollup/rollup-linux-x64-gnu` as a workaround for npm bug #4828 (a
+        # lockfile generated on macOS arm64 omitting the Linux-x64 Rollup
+        # binary). That workaround is now both unnecessary and fatal:
+        #
+        #   * unnecessary — vite 8 bundles with rolldown, not rollup. No
+        #     `@rollup/*` package is in the tree at all, and every
+        #     `@rolldown/binding-*` / `lightningcss-*` platform binary IS in the
+        #     lockfile, including linux-x64-gnu, so `npm ci` resolves them.
+        #   * fatal — the npm that ships with Node 22 (10.9.x) crashes with
+        #     `Cannot read properties of null (reading 'edgesOut')` in
+        #     arborist's `#loadPeerSet` on any command that rebuilds the ideal
+        #     tree next to vitest's peer set. Node 18 and 20 carry older npm and
+        #     survived it, which is why only `node-test (22)` was red.
+        #
+        # That single line is why ci-gate had been failing on main since
+        # 2026-09-05.
+        run: npm ci
 
       - name: Build (regenerates dist/, required by PR #4 bin-shim regression test)
         working-directory: node
@@ -163,6 +176,25 @@ jobs:
         run: npm run lint
 
       - name: vitest (full suite)
+        # Skipped on Node 18, and that is not a gap being papered over.
+        # vitest 4, vite 8 and rolldown all declare `node: ^20.19.0 || >=22.12.0`
+        # and mean it — on Node 18 vitest dies before collecting a single file:
+        #
+        #   SyntaxError: The requested module 'node:util' does not provide an
+        #   export named 'styleText'
+        #
+        # Until this step was reached, the 18 cell had never actually run the
+        # locked tree: the `npm install --no-save --no-package-lock` line that
+        # used to follow `npm ci` re-resolved it ("added 4 packages, removed 6
+        # packages, changed 20 packages" — measured), so the suite ran against
+        # versions nobody committed. Removing that line is what made this
+        # visible.
+        #
+        # What `engines.node: ">=18"` claims is that the PUBLISHED artifact runs
+        # on 18 — not that the dev toolchain does. The 18 cell still proves that
+        # claim, through `npm ci` + build + lint + the e2e:mcp runners below,
+        # all of which pass there against the locked tree.
+        if: matrix.node-version != '18'
         working-directory: node
         run: npm test
 
