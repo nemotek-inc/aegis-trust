@@ -50,4 +50,10 @@ aegis-sandbox-audit.jsonl
 # Internal sprint / audit artifacts — never publish to the public repo.
 # These hold ops-internal review evidence (exposure audits, cross-review logs)
 # that reference private substrate paths. Kept local-only.
-deploy/
+#
+# **Anchored to the repo root (S053).** Without the leading slash this pattern
+# matches a `deploy/` at ANY depth, so a customer-facing deployment unit written
+# to `docs/deploy/` disappeared silently — the file was created, `git add`
+# refused it, and nothing said why unless someone looked. The intent was always
+# this one top-level scratch directory.
+/deploy/

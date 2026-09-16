@@ -1,0 +1,63 @@
+name: merge-on-green
+
+# merge を機械に渡す (2026-09-16)。
+#
+# 実測でこの repo に溜まっていたもの: open PR **8 本、全部 dependabot**。
+# branch **28 本**。#164 は全 check 緑・`CLEAN` のまま放置されていた。
+# 原因は 1 つで、**緑になっても merge する者が居ない**。
+#
+# 依存更新は放置するほど危険になる種類の PR で、溜まると互いに衝突し、
+# 衝突すると更に放置される。人が捌く形にしている限り、この山は必ず戻ってくる。
+#
+#   push ──► CI ──緑──► **機械が merge** ──► main ──► 事後検査を dispatch
+#              └─赤──► 何も起きない (止まる)
+#
+# なぜ GitHub の auto-merge ではなく自分で merge するか:
+#   auto-merge が見る branch protection を読むには administration:read が要り、
+#   GITHUB_TOKEN には与えられない = **「緑の定義」を確かめられないまま信じる**
+#   ことになる。この形なら宣言 (ops/required_checks.json) を読み、その check が
+#   実際にこの commit で緑であることを確かめてから merge できる。
+#   branch protection は GitHub 側の独立した 2 枚目として残る。
+#
+# bot の扱い: 既定では bot が開いた PR を merge しない (輪を作らない)。例外は
+# 宣言で**名指しした** bot だけで、この repo では dependabot。名指しなので、
+# 別の bot が現れても勝手には通らない。
+
+on:
+  workflow_run:
+    workflows: [ci, audit]
+    types: [completed]
+
+concurrency:
+  group: merge-on-green-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # squash merge が main に commit を作る
+  pull-requests: write   # merge API
+  checks: read           # 宣言された check がこの commit で緑かを見る
+  actions: write         # merge 後に main の事後検査を起動する
+
+jobs:
+  merge:
+    # PR 由来の走行だけ。main への push で起きた走行は対象外 (輪を作らない)。
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 宣言された check が全部緑なら merge する
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 ops/merge_on_green.py
+          rc=$?
+          set -e
+          # 3 = まだ条件を満たさない (待ち)。赤ではないので job は緑で終える。
+          if [ "$rc" = "3" ]; then
+            echo "まだ merge しない (上の判定のとおり)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$rc"

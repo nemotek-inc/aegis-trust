@@ -1,0 +1,15 @@
+{
+  "_why": "「緑とは何か」の唯一の宣言。branch protection (GitHub 側の強制) と、merge を実行する機械 (ops/merge_on_green.py) が同じ 1 本を読む。2 か所に書くと甘い方が勝つ。",
+  "_measured_2026_09_16": "この repo には open PR が 8 本、branch が 28 本溜まっていた。全部 dependabot で、#164 は全 check 緑・CLEAN のまま放置されていた。原因は単純で、**緑になっても merge する者が居ない**。",
+  "required_contexts": [
+    "ci-gate",
+    "audit-gate"
+  ],
+  "_ci_gate": "ci.yml の集約 job。matrix の suffix 付き check 名 (python-test (3.12) 等) を 1 本に畳む役で、上流の failure を needs で伝播させる。",
+  "_audit_gate": "audit.yml の集約 job (pip-audit / npm-audit)。**セキュリティ SDK の依存監査を必須にしない理由が無い**ので「緑」に含める。2026-09-16 実測で main は success なので、必須にしても repo は凍らない。",
+  "post_merge_verify_workflow": "ci.yml",
+  "allowed_bot_authors": [
+    "dependabot[bot]"
+  ],
+  "_allowed_bot_authors": "既定では bot が開いた PR を機械は merge しない (自動 merge の輪を作らないため)。dependabot はここで**名指しで**外す: 依存更新は放置するほど危険になる種類の PR で、判定は CI が行う。名指しなので、別の bot が現れても勝手には通らない。"
+}
