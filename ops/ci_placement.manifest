@@ -36,6 +36,7 @@ ci.yml             | gitleaks     | ubuntu-latest | 秘密の混入検査
 ci.yml             | drift-check  | ubuntu-latest | 宣言と実体のずれ検査
 ci.yml             | ci-gate      | ubuntu-latest | 上 4 つの集約判定
 version-parity.yml | parity       | ubuntu-latest | 版数の一致
+merge-on-green.yml | merge        | ubuntu-latest | 判定と merge。CI と同じ面で走らせる
 
 # ── 宣言された例外: 出荷経路 ───────────────────────────────────────────────
 # release-attestation.yml は署名して公開する経路。ここは今回動かさない。
