@@ -274,6 +274,23 @@ def cmd_attest_verify(args: argparse.Namespace) -> int:
     return EXIT_ABNORMAL if failed else EXIT_CLEAN
 
 
+def cmd_attest_watch(args: argparse.Namespace) -> int:
+    """Run `attest-verify` on a schedule, and notify when the verdict is bad.
+
+    S053 B-1 / B-2. The verifier existed and nothing ran it; the documentation
+    said how to invoke it and the distribution shipped no unit that did. A check
+    nobody runs is indistinguishable from a check that always passes — and this
+    one exists to notice that a customer's boundary stopped reporting.
+
+    The loop reuses `cmd_attest_verify` unchanged. One verifier, one answer: a
+    second implementation of "is this attestation good" is how a customer gets
+    told two different things about one disk.
+    """
+    from . import attest_watch
+
+    return attest_watch.main(lambda: cmd_attest_verify(args), args)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse CLI arguments and dispatch to the correct subcommand.
 
@@ -381,6 +398,41 @@ def main(argv: list[str] | None = None) -> int:
     att.add_argument("--grace", type=float, default=0.0, metavar="SECONDS")
     att.add_argument("--json", action="store_true", help="machine-readable verdict")
 
+    # aegis attest-watch — the same check, on a schedule, with a way to tell
+    # somebody. Every `attest-verify` flag is accepted verbatim so a customer
+    # who has a working one-shot invocation turns it into a deployment by
+    # changing one word.
+    from . import attest_watch as _attest_watch
+
+    watch = subparsers.add_parser(
+        "attest-watch",
+        help="run attest-verify on a schedule and notify on a bad verdict (S053 B-1/B-2)",
+        description=(
+            "The verifier, deployed. One long-running loop: a systemd Service, a "
+            "container's main process, or a one-replica Deployment — three shapes, "
+            "one artifact. Every cycle writes a heartbeat, so 'is it running' is "
+            "answerable without asking a person to look."
+        ),
+    )
+    for action in att._actions:  # noqa: SLF001 - reuse the verifier's own flags
+        if action.dest in {"help"}:
+            continue
+        kwargs = {
+            "default": action.default,
+            "help": action.help,
+        }
+        if action.dest == "attestation":
+            watch.add_argument("attestation", nargs="?", **kwargs)
+            continue
+        if action.__class__.__name__ == "_StoreTrueAction":
+            watch.add_argument(*action.option_strings, action="store_true", **kwargs)
+            continue
+        kwargs["type"] = action.type
+        kwargs["required"] = action.required
+        kwargs["metavar"] = action.metavar
+        watch.add_argument(*action.option_strings, **kwargs)
+    _attest_watch.add_arguments(watch)
+
     args = parser.parse_args(argv)
 
     if args.command == "history":
@@ -389,6 +441,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_stats(args)
     elif args.command == "attest-verify":
         return cmd_attest_verify(args)
+    elif args.command == "attest-watch":
+        return cmd_attest_watch(args)
     else:
         parser.print_help()
         return 0

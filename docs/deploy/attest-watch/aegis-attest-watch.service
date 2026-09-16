@@ -1,0 +1,70 @@
+[Unit]
+# S053 B-1 — the verifier, deployed.
+#
+# The check has existed since S051 and nothing ran it. The documentation said
+# how to invoke it; the distribution shipped no unit that did. For a verifier
+# that is worse than for an ordinary feature: a check nobody runs is
+# indistinguishable from a check that always passes, and this one exists to
+# notice that a boundary stopped reporting.
+#
+# This is a Service, not a Timer, on purpose. The same artifact is the main
+# process of a container and the single replica of a Deployment — three shapes,
+# one thing to get right. A timer-per-platform would be three artifacts and
+# three ways to be misconfigured, for the one program whose own liveness has to
+# be legible.
+Description=Aegis attestation watch (verifies the boundary is still reporting)
+Documentation=https://github.com/nemotek-inc/aegis-trust
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aegis-watch
+Group=aegis-watch
+
+# Edit these four, then `systemctl enable --now aegis-attest-watch`.
+#   EXPECT_KEY   the Ed25519 public key this deployment is pinned to (64 hex)
+#   EXPECT_HOST  the host fingerprint this deployment is pinned to
+#   STATE        where the silence check keeps its state (must survive restarts)
+#   NOTIFY       argv of a command that receives the verdict as JSON on stdin.
+#                **Leave it empty and a bad verdict is silent** — the heartbeat
+#                records that fact, and this unit will not pretend otherwise.
+Environment=EXPECT_KEY=
+Environment=EXPECT_HOST=
+Environment=STATE=/var/lib/aegis-watch/attest-state.json
+Environment=HEARTBEAT=/var/lib/aegis-watch/heartbeat.json
+Environment=NOTIFY=
+Environment=EVERY=3600
+Environment=REPORT_WITHIN=7200
+Environment=RENOTIFY=21600
+
+ExecStart=/usr/local/bin/aegis attest-watch \
+    --expect-key ${EXPECT_KEY} \
+    --expect-host ${EXPECT_HOST} \
+    --state ${STATE} \
+    --report-within ${REPORT_WITHIN} \
+    --heartbeat ${HEARTBEAT} \
+    --notify-command "${NOTIFY}" \
+    --renotify ${RENOTIFY} \
+    --every ${EVERY}
+
+# The watcher coming back is more important than the watcher being tidy.
+Restart=always
+RestartSec=30
+
+# It reads an attestation and writes two small files. Nothing else.
+StateDirectory=aegis-watch
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
