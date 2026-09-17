@@ -34,6 +34,7 @@ ci.yml             | python-test  | ubuntu-latest | Python SDK の試験
 ci.yml             | node-test    | ubuntu-latest | Node SDK の試験 (版 matrix)
 ci.yml             | gitleaks     | ubuntu-latest | 秘密の混入検査
 ci.yml             | drift-check  | ubuntu-latest | 宣言と実体のずれ検査
+ci.yml             | public-surface | ubuntu-latest | private 側の内容がこの公開 repo に出ていないか (秘密不要・fork の PR でも走る)
 ci.yml             | ci-gate      | ubuntu-latest | 上 4 つの集約判定
 version-parity.yml | parity       | ubuntu-latest | 版数の一致
 merge-on-green.yml | merge        | ubuntu-latest | 判定と merge。CI と同じ面で走らせる

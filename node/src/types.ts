@@ -1,5 +1,5 @@
 // Public type definitions for aegis-trust.
-// Mirror of aegis-trust (PyPI) aegis/types.py.
+// Mirror of aegis-trust (PyPI) python/src/aegis_trust/types.py.
 
 export enum Mode {
   LITE = "lite",

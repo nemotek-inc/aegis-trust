@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Local + CI wrapper to invoke the internal-ops time_to_first_call
-# verifier against the current sdk/node-trust source. Packs the SDK,
-# materialises a clean CJS workdir, exports the env-var contract that
-# pre_release_gate_productization.sh expects, then runs the verifier.
+# Local + CI wrapper to invoke the time_to_first_call verifier against the
+# current node SDK source. Packs the SDK, materialises a clean CJS workdir,
+# exports the env-var contract the release gate expects, then runs the
+# verifier.
 #
 # Usage:
-#   bash sdk/node-trust/tests/timing/run_timing_gate.sh
+#   bash node/tests/timing/run_timing_gate.sh
 #
 # Exit 0 = PASS, non-zero = FAIL.
 

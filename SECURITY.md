@@ -98,6 +98,49 @@ SDK — as the trust anchor.
   Customer-side integrity is verifiable with `cosign verify-blob` against the
   release assets.
 
+## What must not appear in this repository
+
+This repository is **public**. It is closely coupled to a **private** core
+repository: the two share a canonical contract, and investigations frequently
+span both. Until 2026-09-16 the only thing keeping private material out of the
+public side was human attention. That failed: two issues were opened here
+without checking the destination's visibility. One carried a source excerpt from
+the private repository and was visible for roughly 25 minutes; the other carried
+unreleased commercial planning. Both were moved, but public event archives and
+watcher notifications cannot be recalled.
+
+The following must not appear in this repository — in tracked files, issues,
+pull requests, discussions, or comments:
+
+- Source, file paths, or internal symbol names belonging to the private core
+  repository
+- Internal design decisions and internal-only operational tooling names
+- Unreleased commercial, pricing, or roadmap information
+- Customer names and tenant identifiers
+
+**This is enforced mechanically for tracked files.** The `public-surface` CI job
+runs [`scripts/public_surface_guard.py`](scripts/public_surface_guard.py) and is
+required by `ci-gate`. Its primary rules need no secret vocabulary: a reference
+to a source path this repository does not contain, or a code fence in a language
+this repository does not contain, is by construction content from somewhere
+else. A supplementary rule matches a small hashed vocabulary
+([`scripts/private_markers.sha256`](scripts/private_markers.sha256) — digests
+only, never plaintext, because a plaintext list here would itself be the
+disclosure). The guard never prints what it matched; public CI logs are public.
+
+Declared exceptions live in
+[`scripts/public_surface_allow.txt`](scripts/public_surface_allow.txt) and must
+state a reason; the guard rejects an exception that does not.
+
+**Issue and PR bodies are outside CI's reach.** Nothing in this repository can
+inspect text before it is submitted, so that surface is guarded on the authoring
+side instead. If you are about to paste an excerpt, confirm the destination's
+visibility first.
+
+If private material does reach this repository, treat it as an incident: report
+it privately using the process above rather than opening a public issue about
+it.
+
 ## Security documentation
 
 - [`docs/security/SECURITY_ASSESSMENT.md`](docs/security/SECURITY_ASSESSMENT.md)
