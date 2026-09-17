@@ -1,6 +1,6 @@
 # Dev fixture: minimal threat + audit policy.
-# Mirrors aegis-core aegis_gateway/tests/rest_integration_test.rs:ensure_config
-# so β integration tests see the same gateway shape production does.
+# Mirrors the gateway integration-test configuration used upstream, so β
+# integration tests see the same gateway shape production does.
 threat:
   max_open_capsules: 3
 audit:

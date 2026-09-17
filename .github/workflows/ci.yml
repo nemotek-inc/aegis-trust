@@ -391,6 +391,38 @@ jobs:
           print(f"OK (cross-SDK): npm and PyPI version-locked at {Version(node_v)}")
           PY
 
+  public-surface:
+    # This repository is public; the core repository it is coupled to is not.
+    # On 2026-09-16 content from the private side reached this side and was
+    # caught by a person, not by a machine. This job is the machine.
+    #
+    # The guard needs no secrets and no network: its primary rules are
+    # structural (a source path this repo does not contain; a code fence in a
+    # language this repo does not contain), so they work on fork PRs too.
+    # Its vocabulary file carries sha256 digests only — a plaintext list in a
+    # public repo would make the guard itself the disclosure.
+    #
+    # Controls live in `python/tests/test_public_surface_guard.py`, including
+    # one asserting this job exists and one asserting `ci-gate` needs it.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Full history is not needed; the guard reads the checked-out tree.
+          fetch-depth: 1
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Nothing from the private side is in the public tree
+        run: python3 scripts/public_surface_guard.py
+
   ci-gate:
     # Aggregator job for branch protection. Single required status check
     # name that propagates upstream matrix / job failures via `needs:`.
@@ -402,6 +434,7 @@ jobs:
       - node-test
       - gitleaks
       - drift-check
+      - public-surface
     if: always()
     defaults:
       run:
@@ -413,17 +446,20 @@ jobs:
           node_result="${{ needs.node-test.result }}"
           gitleaks_result="${{ needs.gitleaks.result }}"
           drift_result="${{ needs.drift-check.result }}"
+          surface_result="${{ needs.public-surface.result }}"
 
           echo "Upstream results:"
-          echo "  python-test:  $python_result"
-          echo "  node-test:    $node_result"
-          echo "  gitleaks:     $gitleaks_result"
-          echo "  drift-check:  $drift_result"
+          echo "  python-test:     $python_result"
+          echo "  node-test:       $node_result"
+          echo "  gitleaks:        $gitleaks_result"
+          echo "  drift-check:     $drift_result"
+          echo "  public-surface:  $surface_result"
 
           if [ "$python_result"   != "success" ] \
             || [ "$node_result"    != "success" ] \
             || [ "$gitleaks_result" != "success" ] \
-            || [ "$drift_result"   != "success" ]; then
+            || [ "$drift_result"   != "success" ] \
+            || [ "$surface_result" != "success" ]; then
               echo ""
               echo "ci-gate FAIL: at least one upstream job did not succeed."
               exit 1
