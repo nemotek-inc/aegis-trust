@@ -265,8 +265,13 @@ def test_ci_uses_aggregator_job():
     if isinstance(needs, str):
         needs = [needs]
 
-    expected_upstream = {"python-test", "node-test", "gitleaks", "drift-check",
-                         "public-surface"}
+    expected_upstream = {
+        "python-test",
+        "node-test",
+        "gitleaks",
+        "drift-check",
+        "public-surface",
+    }
     assert set(needs) == expected_upstream, (
         f"ci-gate.needs must be exactly {sorted(expected_upstream)}; got {sorted(needs)}"
     )

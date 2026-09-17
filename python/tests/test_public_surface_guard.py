@@ -50,8 +50,9 @@ def _digest(token: str) -> str:
 
 
 def _git(repo: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(repo), *args], check=True,
-                   capture_output=True, text=True)
+    subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
+    )
 
 
 @pytest.fixture
@@ -77,7 +78,9 @@ def fake_repo(tmp_path: Path) -> Path:
 def run_guard(repo: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(GUARD), "--repo", str(repo)],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -103,8 +106,11 @@ def test_clean_repo_passes(fake_repo: Path) -> None:
 def test_r1_rejects_path_from_another_repo(fake_repo: Path) -> None:
     """The exact shape of the 2026-09-16 disclosure: prose naming a source
     file that lives in a different repository."""
-    commit_file(fake_repo, "docs/note.md",
-                "See engine/other_crate/src/backends/mod.rs for the wrapper.\n")
+    commit_file(
+        fake_repo,
+        "docs/note.md",
+        "See engine/other_crate/src/backends/mod.rs for the wrapper.\n",
+    )
     result = run_guard(fake_repo)
     assert result.returncode == 1, result.stdout
     assert "R1" in result.stdout
@@ -121,25 +127,33 @@ def test_r1_accepts_relative_module_specifiers(fake_repo: Path) -> None:
     """`../src/index.js` is a module resolution target, not a repo path.
     Measured against the real tree: treating these as findings produced 100+
     false positives, which is the same as having no guard."""
-    commit_file(fake_repo, "src/app.ts",
-                'import { shield } from "../src/index.js";\n')
+    commit_file(fake_repo, "src/app.ts", 'import { shield } from "../src/index.js";\n')
     result = run_guard(fake_repo)
     assert result.returncode == 0, result.stdout
 
 
 def test_r1_accepts_shell_variable_expansion(fake_repo: Path) -> None:
-    commit_file(fake_repo, "scripts/run.sh",
-                'hash_file "$REPO_ROOT/.github/workflows/thing.yml"\n')
+    commit_file(
+        fake_repo,
+        "scripts/run.sh",
+        'hash_file "$REPO_ROOT/.github/workflows/thing.yml"\n',
+    )
     result = run_guard(fake_repo)
     assert result.returncode == 0, result.stdout
 
 
 def test_r1_allowlist_entry_suppresses_the_finding(fake_repo: Path) -> None:
-    commit_file(fake_repo, "docs/note.md",
-                "See engine/other_crate/src/backends/mod.rs for the wrapper.\n")
+    commit_file(
+        fake_repo,
+        "docs/note.md",
+        "See engine/other_crate/src/backends/mod.rs for the wrapper.\n",
+    )
     assert run_guard(fake_repo).returncode == 1
-    commit_file(fake_repo, ALLOW_REL,
-                "docs/note.md | R1 | negative control, deliberately absent path\n")
+    commit_file(
+        fake_repo,
+        ALLOW_REL,
+        "docs/note.md | R1 | negative control, deliberately absent path\n",
+    )
     assert run_guard(fake_repo).returncode == 0
 
 
@@ -155,23 +169,24 @@ def test_allowlist_entry_without_a_reason_is_not_a_declaration(fake_repo: Path) 
 
 
 def test_r2_rejects_a_fence_in_a_foreign_language(fake_repo: Path) -> None:
-    commit_file(fake_repo, "docs/note.md",
-                "Example:\n\n```rust\npub trait Wrapper {}\n```\n")
+    commit_file(
+        fake_repo, "docs/note.md", "Example:\n\n```rust\npub trait Wrapper {}\n```\n"
+    )
     result = run_guard(fake_repo)
     assert result.returncode == 1, result.stdout
     assert "R2" in result.stdout
 
 
 def test_r2_accepts_a_fence_in_a_language_this_repo_has(fake_repo: Path) -> None:
-    commit_file(fake_repo, "docs/note.md",
-                "Example:\n\n```python\nVALUE = 1\n```\n")
+    commit_file(fake_repo, "docs/note.md", "Example:\n\n```python\nVALUE = 1\n```\n")
     result = run_guard(fake_repo)
     assert result.returncode == 0, result.stdout
 
 
 def test_r2_accepts_language_neutral_fences(fake_repo: Path) -> None:
-    commit_file(fake_repo, "docs/note.md",
-                "Output:\n\n```text\nOK\n```\n\n```\nbare\n```\n")
+    commit_file(
+        fake_repo, "docs/note.md", "Output:\n\n```text\nOK\n```\n\n```\nbare\n```\n"
+    )
     result = run_guard(fake_repo)
     assert result.returncode == 0, result.stdout
 
@@ -180,7 +195,9 @@ def test_r2_accepts_language_neutral_fences(fake_repo: Path) -> None:
 
 
 def test_r3_rejects_a_token_whose_hash_is_declared(fake_repo: Path) -> None:
-    commit_file(fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n")
+    commit_file(
+        fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n"
+    )
     commit_file(fake_repo, "docs/note.md", "The clandestine_widget ships next year.\n")
     result = run_guard(fake_repo)
     assert result.returncode == 1, result.stdout
@@ -189,7 +206,9 @@ def test_r3_rejects_a_token_whose_hash_is_declared(fake_repo: Path) -> None:
 
 def test_r3_normalization_survives_respelling(fake_repo: Path) -> None:
     """Changing punctuation or case must not walk past the rule."""
-    commit_file(fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n")
+    commit_file(
+        fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n"
+    )
     commit_file(fake_repo, "docs/note.md", "The ClandestineWidget ships next year.\n")
     assert run_guard(fake_repo).returncode == 1
 
@@ -200,14 +219,21 @@ def test_r3_matches_a_term_that_carries_a_suffix(fake_repo: Path) -> None:
     whole tokens, so a term appearing as `<term>.rs:<symbol>` normalized to a
     different string and the scan came back clean on content that was in fact
     leaking. Matching now joins adjacent segments instead."""
-    commit_file(fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n")
-    commit_file(fake_repo, "docs/note.md",
-                "Mirrors other_crate/tests/clandestine_widget.rs:setup so that\n")
+    commit_file(
+        fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n"
+    )
+    commit_file(
+        fake_repo,
+        "docs/note.md",
+        "Mirrors other_crate/tests/clandestine_widget.rs:setup so that\n",
+    )
     assert run_guard(fake_repo).returncode == 1
 
 
 def test_r3_accepts_unrelated_tokens(fake_repo: Path) -> None:
-    commit_file(fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n")
+    commit_file(
+        fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n"
+    )
     commit_file(fake_repo, "docs/note.md", "The public widget ships next year.\n")
     assert run_guard(fake_repo).returncode == 0
 
@@ -256,9 +282,12 @@ def test_guard_never_prints_the_matched_content(fake_repo: Path) -> None:
     """Public CI logs are public. Printing the hit would disclose it again —
     for R3 that is the private token itself."""
     secret_path = "engine/other_crate/src/backends/mod.rs"
-    commit_file(fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n")
     commit_file(
-        fake_repo, "docs/note.md",
+        fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n"
+    )
+    commit_file(
+        fake_repo,
+        "docs/note.md",
         f"See {secret_path}.\nThe clandestine_widget ships.\n\n```rust\nfn x() {{}}\n```\n",
     )
     result = run_guard(fake_repo)
