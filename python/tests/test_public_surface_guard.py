@@ -275,6 +275,42 @@ def test_r4_plaintext_in_the_vocabulary_file_fails(fake_repo: Path) -> None:
     assert "測れなかった" in result.stdout
 
 
+# ── The guard is not exempt from its own vocabulary rule ───────────
+
+
+def test_guard_file_is_still_checked_against_the_vocabulary(fake_repo: Path) -> None:
+    """Measured on 2026-09-17, on the merged commit: the guard's own comment
+    quoted a private term as an example, and the guard exempted itself from
+    every rule, so nothing here caught it — the private-side scan did.
+
+    The exemption was too coarse. A file that explains the guard has no reason
+    to spell a private term; it can describe the shape instead."""
+    commit_file(
+        fake_repo, MARKERS_REL, MARKER_HEADER + _digest("clandestine-widget") + "\n"
+    )
+    commit_file(
+        fake_repo,
+        "scripts/public_surface_guard.py",
+        "# for example, clandestine_widget appears as <term>.rs:<symbol>\n",
+    )
+    result = run_guard(fake_repo)
+    assert result.returncode == 1, result.stdout
+    assert "R3" in result.stdout
+
+
+def test_guard_file_may_still_cite_paths_that_do_not_exist(fake_repo: Path) -> None:
+    """The other half of the same exemption, kept: explaining what an absent
+    path looks like requires writing one. A guard its own docstring fails is
+    not a control."""
+    commit_file(
+        fake_repo,
+        "scripts/public_surface_guard.py",
+        "# R1 catches a reference like engine/other_crate/src/backends/mod.rs\n",
+    )
+    result = run_guard(fake_repo)
+    assert result.returncode == 0, result.stdout
+
+
 # ── The guard must not re-publish what it finds ────────────────────
 
 

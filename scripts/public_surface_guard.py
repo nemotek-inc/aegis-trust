@@ -156,8 +156,13 @@ NORM_RE = re.compile(r"[^a-z0-9]+")
 #
 # 最初に書いた版は `[A-Za-z][A-Za-z0-9_.-]{4,63}` で token を取っていた。private
 # 側で陽性対照 (漏洩していた当時の tree をその語彙で走査する) を走らせたら
-# **0 件**だった: 漏れていた語は `…/rest_integration_test.rs:ensure_config` の
-# 中に在り、token としては拡張子まで含まれて別の綴りになる。
+# **0 件**だった: 漏れていた語は `…/<語>.<拡張子>:<記号>` の形に埋まっていて、
+# token としては拡張子まで含まれ、別の綴りになっていたため。
+#
+# (この注釈は当初その実例を綴りごと書いていた。**この file は公開されるので、
+#  それ自体が同じ種類の漏洩だった。** private 側の走査が当てて分かった —
+#  当時この門は自分を全規則から免除していたので、門では捕まらなかった。
+#  下の `exempt_paths_rule` はその修理。例は形だけ書く。)
 #
 # だから英数字の連なりに割ってから、連続する窓を繋いで比べる。窓をどこまで
 # 広げるかは語彙 file の `# max_segments:` が**唯一の定義点**で、private 側の
@@ -336,11 +341,25 @@ def scan(repo: Path, ref: str | None) -> tuple[list[str], list[str], dict]:
         "allow": len(allow), "langs": len(langs),
     }
 
-    self_paths = {MARKERS_NAME, ALLOW_NAME, "scripts/public_surface_guard.py"}
+    # 門自身に関わる file の扱い。**規則ごとに分ける。**
+    #
+    # 最初は「この 3 つは走査しない」で済ませていた。2026-09-17、private 側の走査が
+    # **この file の注釈に private の語が書かれている**ことを当てた。公開される file
+    # なので、それ自体が同じ種類の漏洩であり、しかも **門が自分を免除していたので
+    # 門では捕まらなかった**。免除の粒度が file だったことが欠陥。
+    #
+    #   語彙 file        全規則から外す (中身は digest であって語ではない)
+    #   R1 (実在しない path)  門と例外 file は免除。説明のために実在しない path を
+    #                         例示するのはこの 2 つの仕事で、自分の説明文で自分を
+    #                         落とす門は統制ではない
+    #   R2 / R3          **免除しない。** 説明文が private の語や他言語の code を
+    #                    必要とする理由は無い。例は形だけ書けばよい
+    GUARD_PATH = "scripts/public_surface_guard.py"
+    exempt_all = {MARKERS_NAME}
+    exempt_paths_rule = {ALLOW_NAME, GUARD_PATH}
 
     for path in files:
-        if path in self_paths:
-            # 門自身は走査しない。自分の説明文で自分を落とす門は統制ではない。
+        if path in exempt_all:
             continue
         if Path(path).suffix.lower() not in TEXT_SUFFIXES:
             stats["skipped"] += 1
@@ -375,7 +394,8 @@ def scan(repo: Path, ref: str | None) -> tuple[list[str], list[str], dict]:
 
             # R1: 実在しない source path への参照。
             is_module_line = bool(MODULE_STMT_RE.search(line))
-            for match in PATH_RE.finditer(line):
+            for match in ([] if path in exempt_paths_rule
+                          else PATH_RE.finditer(line)):
                 token = match.group(1)
                 if Path(token).suffix.lower() not in SOURCE_SUFFIXES:
                     continue
