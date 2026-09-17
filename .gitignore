@@ -57,3 +57,13 @@ aegis-sandbox-audit.jsonl
 # refused it, and nothing said why unless someone looked. The intent was always
 # this one top-level scratch directory.
 /deploy/
+
+# 道具が repo の中に書く作業 file。**この repo は公開されている。**
+#
+# 2026-09-17 実測: browser 道具の session log 4 本 (console / network / audit) が
+# 未追跡のまま作業ツリーに在った。中身に private 側の語は無かったが、network log は
+# 素性が読めない — そして **未追跡の file は `git add -A` 1 回で公開される**。
+#
+# 「公開 repo の作業ツリーを道具の置き場に使わない」を、人の注意ではなく
+# ここで決める (2026-09-16 の起票 #285 の 3 番目の項目)。
+/.gstack/
