@@ -80,7 +80,7 @@ jobs:
         run: uv sync --extra dev --locked
 
       - name: pip-audit (fail-closed)
-        run: uv run pip-audit --strict
+        run: uv run pip-audit --strict -s osv
 
   npm-audit:
     runs-on: ubuntu-latest
