@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aegis-trust"
-version = "0.10.2"
+version = "0.11.0"
 description = "AI agent data access control — control what agents can see"
 readme = "README.md"
 requires-python = ">=3.10"

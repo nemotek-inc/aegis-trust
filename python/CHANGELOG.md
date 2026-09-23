@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-23
+
+### Added — 3-Tier Value-Free Product Status Notification System (#283)
+- Product status notification mechanism with strict 3-tier separation:
+  - Tier 1: Local runtime exceptions and standard error paths (zero external network I/O, INV-3 enforced).
+  - Tier 2: SIEM / structured security audit stream via pluggable transport (AO-002 value-free reporting).
+  - Tier 3: Asynchronous alert notifications (webhook / CLI sink).
+- Guaranteed zero-egress default with explicit isolation from user data payload.
+
+### Added — Execution Plane Adapter Port and Core Isolation (#284)
+- Unified execution plane backend interface for agent, data, and usecase execution planes.
+- Four architectural invariants strictly enforced: dependency direction, extensibility, structural opacity (opaque sealed blob), and cross-boundary refusal.
+- Core SDK modules isolated from concrete cloud identifiers via `PlaneKind` closed enum and `PlaneRegistry`.
+
 ### Added — Core attestation verifier (S051 ③; both SDKs)
 - `aegis_trust.attest_verify` — verifies an Aegis Core attestation **and nothing else**. It never
   opens the capsule directory: two implementations answering one question about
