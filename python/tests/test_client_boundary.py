@@ -380,3 +380,105 @@ def test_client_constructor_normalizes_base_url():
     cmod._base_url_path_completed_warned = False
     c = cmod.AegisClient(base_url="http://localhost:8443")
     assert c._base_url == "http://localhost:8443/api/v1"
+
+
+# ── declared action (read / write) + lossless response (raw, boundary_receipt) ──
+
+_VIEW_BODY = {
+    "source": "CORE",
+    "outcome": "PROTECTED",
+    "purpose_label": "p",
+    "allowed_fields": ["name"],
+    "withheld_fields": [],
+    "reason_code": "minimum_disclosure",
+    "reason_label": "Minimum disclosure",
+    "evidence_available": True,
+    "evidence": None,
+}
+
+
+def test_check_boundary_body_omits_unset_action():
+    # No declaration -> no key: the body stays byte-identical to prior SDKs.
+    body = AegisClient._check_boundary_body(
+        "p",
+        ["name"],
+        origin="https://localhost:8443/api/v1",
+        destination="https://x.example/a",
+    )
+    assert "action" not in body
+
+
+@pytest.mark.parametrize("action", ["read", "write", " read ", "Read", ""])
+def test_check_boundary_body_sends_action_verbatim(action):
+    # Verbatim, top-level: the server compares byte for byte, so the SDK must
+    # not trim or case-fold (a "fixed" value would be a different request than
+    # the one the caller wrote).
+    body = AegisClient._check_boundary_body(
+        "p", ["name"], origin="https://localhost:8443/api/v1", action=action
+    )
+    assert body["action"] == action
+
+
+def test_check_boundary_sends_action_on_the_wire():
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json=_VIEW_BODY)
+
+    c = _client_with_transport(handler)
+    c.check_boundary("p", [], destination="https://facts.example/c/1", action="read")
+    assert seen["action"] == "read"
+    assert seen["destination"] == "https://facts.example/c/1"
+
+
+def test_check_boundary_view_keeps_the_whole_body_in_raw():
+    # Keys the typed view does not surface must survive in `raw`: a Core that
+    # issues a receipt signs a digest of this object, so dropping one would
+    # make the decision unverifiable downstream.
+    extra = {
+        **_VIEW_BODY,
+        "policy_generation": 7,
+        "policy_digest": "sha256:abc",
+        "response_policy": {"tone": "formal", "fields": ["name"]},
+        "some_future_key": [1, {"nested": "ü\u0001"}],
+        "boundary_receipt": {"schema": "aegis-span-crypto.v0", "envelope_id": "e" * 64},
+    }
+
+    c = _client_with_transport(lambda req: httpx.Response(200, json=extra))
+    view = c.check_boundary("p", ["name"])
+    assert view.raw == extra
+    assert view.boundary_receipt == extra["boundary_receipt"]
+    # A copy, not the transport's object: mutating it cannot change the view.
+    view.raw["outcome"] = "BLOCKED"
+    assert view.outcome == "PROTECTED"
+
+
+def test_check_boundary_view_without_receipt():
+    c = _client_with_transport(lambda req: httpx.Response(200, json=_VIEW_BODY))
+    view = c.check_boundary("p", ["name"])
+    assert view.boundary_receipt is None
+    assert view.raw == _VIEW_BODY
+
+
+def test_check_boundary_view_null_receipt_is_none():
+    # A configured server that could not commit a receipt answers
+    # `boundary_receipt: null` + `boundary_receipt_error`; the view carries
+    # no receipt and `raw` keeps the reason.
+    body = {
+        **_VIEW_BODY,
+        "boundary_receipt": None,
+        "boundary_receipt_error": "commitment_unavailable",
+    }
+    c = _client_with_transport(lambda req: httpx.Response(200, json=body))
+    view = c.check_boundary("p", ["name"])
+    assert view.boundary_receipt is None
+    assert view.raw["boundary_receipt_error"] == "commitment_unavailable"
+
+
+def test_check_boundary_views_compare_on_typed_fields_only():
+    a = AegisClient._parse_boundary_view({**_VIEW_BODY, "x": 1})
+    b = AegisClient._parse_boundary_view({**_VIEW_BODY, "x": 2})
+    # `raw` is excluded from ==: two views of the same decision compare equal
+    # whatever extra keys the server sent.
+    assert a == b

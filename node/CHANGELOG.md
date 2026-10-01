@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Added — declared `action` on boundary decisions
+- `CheckBoundaryArgs.action` and `ToolCallArgs.action` (`"read"` or
+  `"write"`): what the caller will do at `destination`. Sent verbatim as
+  top-level `action`, only when set; an unset `action` leaves the request body
+  byte-identical. `toolAllowed` passes it through.
+- Aegis Core waives the two-person approval for a registered public-read source
+  only when the request declares `action: "read"` (compared byte for byte).
+  Declaring nothing or `"write"` keeps the approval; servers that predate the
+  field ignore it. Upgrade order for a collector that relies on the exemption:
+  this SDK → the collector (send `action: "read"`) → the Core build that
+  requires the declaration.
+
+### Added — receipt fields on `BoundaryDecisionView`
+- `boundary_receipt?` / `boundary_receipt_error?` are now declared on the view
+  type. `checkBoundary` already returns the response body as received, so keys
+  the interface does not declare stay on the object; forward it whole when a
+  third party must check the decision against the receipt.
+
 ## [0.11.0] - 2026-09-23
 
 ### Added — 3-Tier Value-Free Product Status Notification System (#283)

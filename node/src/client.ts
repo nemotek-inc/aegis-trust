@@ -226,6 +226,14 @@ export interface BoundaryDecisionView {
   readonly reason_label: string;
   readonly evidence_available: boolean;
   readonly evidence: CoreDecisionEvidence | null;
+  /**
+   * The receipt a receipt-issuing Core attaches (absent when the server does
+   * not issue one; `null` with `boundary_receipt_error` when it could not
+   * commit one). Carried, never checked: verification is the Core's
+   * public-key verifier (`aegis-receipt-verify`), not something the SDK decides.
+   */
+  readonly boundary_receipt?: Record<string, unknown> | null;
+  readonly boundary_receipt_error?: string;
 }
 
 // ── AI-native `decision` object: typed, fail-closed reader ───────────
@@ -683,6 +691,15 @@ export interface CheckBoundaryArgs {
   // Neither ever changes the decision.
   readonly attribution?: AttributionClaim;
   readonly synthetic?: boolean;
+  /**
+   * What the caller will DO at `destination`: `"read"` or `"write"`. Sent
+   * verbatim as top-level `action` and ONLY when set; the SDK does not trim,
+   * case-fold or validate it. The server compares it byte for byte and treats
+   * no declaration, `"write"`, or any other value as a write — a server-side
+   * exemption for registered public-read sources applies only to a declared
+   * `"read"`. Servers that predate the field ignore it.
+   */
+  readonly action?: string;
   // AI-native v1 delegation (A-1): the capability token this call was
   // narrowed by. Normally NOT set by hand — an enclosing `delegate()` window
   // attaches its token automatically (see checkBoundary). Set it explicitly
@@ -720,6 +737,8 @@ export interface ToolCallArgs {
   readonly sessionId?: string;
   readonly destination?: string;
   readonly capability?: string;
+  /** `"read"` / `"write"` at `destination`; same contract as CheckBoundaryArgs.action. */
+  readonly action?: string;
 }
 
 export interface ToolCallResult {
@@ -963,6 +982,7 @@ export class AegisClient {
     // server build before relying on `synthetic` for billing exclusion.
     if (args.attribution !== undefined) body.attribution = args.attribution;
     if (args.synthetic !== undefined) body.synthetic = args.synthetic;
+    if (args.action !== undefined) body.action = args.action;
     // A-1 delegation. A denied window refuses HERE, before the wire: the mint
     // failed, so there is no token to narrow with, and asking un-narrowed
     // would answer at the PARENT's full width. `allowed_fields` on that answer
@@ -1034,6 +1054,10 @@ export class AegisClient {
       });
     }
     if (!resp.ok) throw httpError("check-boundary", resp.status);
+    // The body as received, not a rebuilt view: keys the interface does not
+    // declare (policy_generation, response_policy, …) stay on the object. A
+    // receipt-issuing Core signs a digest of this object minus the receipt
+    // keys, so forwarding it whole is what keeps the decision verifiable.
     return (await resp.json()) as BoundaryDecisionView;
   }
 
@@ -1375,6 +1399,7 @@ export class AegisClient {
     if (args.sessionId !== undefined) payload.session_id = args.sessionId;
     if (args.destination !== undefined) payload.destination = args.destination;
     if (args.capability !== undefined) payload.capability = args.capability;
+    if (args.action !== undefined) payload.action = args.action;
     return payload;
   }
 
