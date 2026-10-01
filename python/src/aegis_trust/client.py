@@ -7,6 +7,7 @@ and convenient access to the Aegis enterprise backend endpoints.
 from __future__ import annotations
 
 import asyncio
+import copy
 import gc
 import logging
 import os
@@ -287,6 +288,19 @@ class BoundaryDecisionView:
     reason_label: str = ""
     evidence_available: bool = False
     evidence: CoreDecisionEvidence | None = None
+    # The response body exactly as received (a deep copy), including keys the
+    # typed fields above do not surface. A Core that issues a boundary receipt
+    # signs a digest of THIS object (minus the receipt keys), so a caller that
+    # forwards the decision to a third party must forward ``raw``, not a view
+    # rebuilt from the typed fields — those drop keys and could not reproduce
+    # the digest. Excluded from ``==``.
+    raw: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+    # ``raw["boundary_receipt"]`` when the server attached one, else ``None``.
+    # Carried, never checked: verification is the Core's public-key verifier
+    # (``aegis-receipt-verify``), not something the SDK decides.
+    boundary_receipt: dict[str, Any] | None = field(
+        default=None, compare=False, repr=False
+    )
 
 
 # ── AI-native `decision` object: typed, fail-closed reader ───────────
@@ -860,8 +874,17 @@ class AegisClient:
         attribution: dict[str, Any] | None = None,
         synthetic: bool | None = None,
         capability: str | None | _Unset = _UNSET,
+        action: str | None = None,
     ) -> dict[str, Any]:
         """Build the ``/check-boundary`` request body.
+
+        ``action`` declares what the caller will DO at ``destination``:
+        ``"read"`` or ``"write"``. It is sent verbatim as top-level ``action``
+        and ONLY when set. The SDK does not trim, case-fold or validate it: the
+        server compares it byte for byte, and a request that declares nothing,
+        ``"write"``, or any other value is treated as a write. A server-side
+        exemption for registered public-read sources applies only to a
+        declared ``"read"``; servers that predate the field ignore it.
 
         ``destination_resource_id`` is an OPTIONAL caller-declared identifier
         of the concrete resource behind ``destination`` (for example a folder
@@ -913,6 +936,8 @@ class AegisClient:
             body["attribution"] = attribution
         if synthetic is not None:
             body["synthetic"] = synthetic
+        if action is not None:
+            body["action"] = action
         # A denied window refuses HERE, before the wire: the mint failed, so
         # there is no token to narrow with, and asking un-narrowed would answer
         # at the PARENT's full width. ``allowed_fields`` on that answer is what
@@ -1015,6 +1040,8 @@ class AegisClient:
                 integrity_checkable_at=str(ev_raw.get("integrity_checkable_at", "")),
                 recorded_at=str(ev_raw.get("recorded_at", "")),
             )
+        raw = copy.deepcopy(body)
+        receipt = raw.get("boundary_receipt")
         return BoundaryDecisionView(
             source=source,
             outcome=outcome,
@@ -1025,6 +1052,8 @@ class AegisClient:
             reason_label=str(body.get("reason_label", "")),
             evidence_available=bool(body.get("evidence_available", False)),
             evidence=evidence,
+            raw=raw,
+            boundary_receipt=receipt if isinstance(receipt, dict) else None,
         )
 
     def check_boundary(
@@ -1041,6 +1070,7 @@ class AegisClient:
         attribution: dict[str, Any] | None = None,
         synthetic: bool | None = None,
         capability: str | None | _Unset = _UNSET,
+        action: str | None = None,
     ) -> BoundaryDecisionView:
         """POST ``/check-boundary`` and return the parsed
         :class:`BoundaryDecisionView`. Reuses the same auth header / base-url /
@@ -1083,6 +1113,7 @@ class AegisClient:
             attribution=attribution,
             synthetic=synthetic,
             capability=capability,
+            action=action,
         )
         resp = self._get_httpx().post("/check-boundary", json=body)
         _ensure_boundary_ok(resp, body.get("capability"))
@@ -1102,6 +1133,7 @@ class AegisClient:
         attribution: dict[str, Any] | None = None,
         synthetic: bool | None = None,
         capability: str | None | _Unset = _UNSET,
+        action: str | None = None,
     ) -> Coroutine[Any, Any, BoundaryDecisionView]:
         """Async variant of :meth:`check_boundary` (same enforcement-neutral
         witness-claim contract for ``attribution`` / ``synthetic``, and the
@@ -1131,6 +1163,7 @@ class AegisClient:
             attribution=attribution,
             synthetic=synthetic,
             capability=capability,
+            action=action,
         )
         return self._acheck_boundary_send(body)
 
@@ -1494,6 +1527,7 @@ class AegisClient:
         session_id: str | None,
         destination: str | None,
         capability: str | None,
+        action: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "tool": tool,
@@ -1507,6 +1541,8 @@ class AegisClient:
             payload["destination"] = destination
         if capability is not None:
             payload["capability"] = capability
+        if action is not None:
+            payload["action"] = action
         return payload
 
     def tool_call(
@@ -1519,6 +1555,7 @@ class AegisClient:
         session_id: str | None = None,
         destination: str | None = None,
         capability: str | None = None,
+        action: str | None = None,
     ) -> dict[str, Any]:
         """Decide ONE tool invocation at the boundary (POST /tool-call).
 
@@ -1527,6 +1564,12 @@ class AegisClient:
         is still HTTP 200 — gate on ``decision["outcome"]`` being in
         :data:`PASSING_OUTCOMES` AND ``decision["ledgered"]`` (or use
         :meth:`tool_allowed`).
+
+        ``action`` (``"read"`` / ``"write"``) declares what the tool will do at
+        ``destination``; sent verbatim as top-level ``action`` and only when
+        set, with the same contract as :meth:`check_boundary`. The returned
+        dict is the response body as received, so a ``boundary_receipt`` the
+        server attaches stays in it.
         """
         t0 = time.monotonic()
         resp = self._get_httpx().post(
@@ -1539,6 +1582,7 @@ class AegisClient:
                 session_id=session_id,
                 destination=destination,
                 capability=capability,
+                action=action,
             ),
         )
         _emit_metric("tool_call", t0, resp.status_code)
@@ -1555,6 +1599,7 @@ class AegisClient:
         session_id: str | None = None,
         destination: str | None = None,
         capability: str | None = None,
+        action: str | None = None,
     ) -> dict[str, Any]:
         """Async variant of :meth:`tool_call` (the per-tool-call hot path)."""
         t0 = time.monotonic()
@@ -1568,6 +1613,7 @@ class AegisClient:
                 session_id=session_id,
                 destination=destination,
                 capability=capability,
+                action=action,
             ),
         )
         _emit_metric("tool_call", t0, resp.status_code)
@@ -1584,6 +1630,7 @@ class AegisClient:
         session_id: str | None = None,
         destination: str | None = None,
         capability: str | None = None,
+        action: str | None = None,
     ) -> bool:
         """Fail-closed boolean gate over :meth:`tool_call` (authorize() parity):
         any transport error, non-200, malformed body, non-passing outcome, or
@@ -1597,6 +1644,7 @@ class AegisClient:
                 session_id=session_id,
                 destination=destination,
                 capability=capability,
+                action=action,
             )
         except Exception:
             logger.warning("tool_allowed: request failed, fail-closed deny")
@@ -1614,6 +1662,7 @@ class AegisClient:
         session_id: str | None = None,
         destination: str | None = None,
         capability: str | None = None,
+        action: str | None = None,
     ) -> bool:
         """Async variant of :meth:`tool_allowed` (same fail-closed contract)."""
         try:
@@ -1625,6 +1674,7 @@ class AegisClient:
                 session_id=session_id,
                 destination=destination,
                 capability=capability,
+                action=action,
             )
         except Exception:
             logger.warning("tool_allowed: request failed, fail-closed deny")

@@ -275,3 +275,60 @@ def test_stream_close_ok_and_malformed():
     c = _client_with_transport(lambda req: httpx.Response(200, json={}))
     with pytest.raises(ValueError):
         c.stream_close("s-9")
+
+
+# ── declared action (read / write) ─────────────────────────────────
+
+
+def test_tool_call_action_sent_verbatim_only_when_given():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"decision": DECISION_OK, "enforcement": None})
+
+    c = _client_with_transport(handler)
+    c.tool_call("t", "p", "o", destination="https://facts.example/c/1")
+    assert "action" not in captured["body"]
+    c.tool_call("t", "p", "o", destination="https://facts.example/c/1", action="read")
+    assert captured["body"]["action"] == "read"
+    c.tool_call("t", "p", "o", action=" Read ")
+    assert captured["body"]["action"] == " Read "
+
+
+def test_tool_allowed_passes_action_through():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"decision": DECISION_OK, "enforcement": None})
+
+    c = _client_with_transport(handler)
+    assert c.tool_allowed("t", "p", "o", action="read") is True
+    assert captured["body"]["action"] == "read"
+
+
+def test_tool_call_returns_the_body_with_its_receipt():
+    receipt = {"schema": "aegis-span-crypto.v0", "envelope_id": "e" * 64}
+    body = {"decision": DECISION_OK, "enforcement": None, "boundary_receipt": receipt}
+    c = _client_with_transport(lambda req: httpx.Response(200, json=body))
+    out = c.tool_call("t", "p", "o")
+    assert out["boundary_receipt"] == receipt
+
+
+@pytest.mark.asyncio
+async def test_atool_call_and_atool_allowed_send_action():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"decision": DECISION_OK, "enforcement": None})
+
+    c = AegisClient(base_url="https://localhost:8443/api/v1", verify_ssl=False)
+    c._async_httpx = httpx.AsyncClient(
+        base_url=c._base_url, transport=httpx.MockTransport(handler), timeout=10.0
+    )
+    await c.atool_call("t", "p", "o", action="write")
+    assert captured["body"]["action"] == "write"
+    assert await c.atool_allowed("t", "p", "o", action="read") is True
+    assert captured["body"]["action"] == "read"
