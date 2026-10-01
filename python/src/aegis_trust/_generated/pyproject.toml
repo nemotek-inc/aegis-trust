@@ -21,6 +21,8 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 line-length = 120
+# ruff 0.16 formats code blocks inside Markdown; leave this README as generated.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["F", "I", "UP"]
