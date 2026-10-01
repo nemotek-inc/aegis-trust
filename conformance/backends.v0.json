@@ -158,6 +158,67 @@
           "DOCTOR_SCHEMA_VERSION": "Schema-version constant. Data, not a code path."
         }
       }
+    },
+    {
+      "id": "execution-planes",
+      "kind": "plane",
+      "what": "Execution plane adapters providing hardware and platform attestation port abstraction across cloud environments.",
+      "extraction": {
+        "python": {
+          "file": "python/src/aegis_trust/planes/__init__.py",
+          "symbol_source": "__all__"
+        },
+        "node": {
+          "file": "node/src/planes/index.ts",
+          "symbol_source": "named exports"
+        }
+      },
+      "backends": [
+        {
+          "id": "plane-local",
+          "python": "LocalPlaneAdapter",
+          "node": "LocalPlaneAdapter"
+        },
+        {
+          "id": "plane-aws",
+          "python": "AwsNitroPlaneAdapter",
+          "node": "AwsNitroPlaneAdapter"
+        },
+        {
+          "id": "plane-azure",
+          "python": "AzureCvmPlaneAdapter",
+          "node": "AzureCvmPlaneAdapter"
+        },
+        {
+          "id": "plane-gcp",
+          "python": "GcpConfidentialPlaneAdapter",
+          "node": "GcpConfidentialPlaneAdapter"
+        }
+      ],
+      "classification_excluded": {
+        "python": {
+          "PlaneAdapter": "Protocol/interface defining the port contract. Type shape, not an instantiation.",
+          "PlaneRegistry": "Registry and dispatcher managing plane adapters. Dispatches to backends; not a leaf adapter.",
+          "PlaneKind": "Closed enum of execution plane identifiers. Data shape, not a backend implementation.",
+          "PlaneAssurance": "Enum of attestation assurance levels. Data shape, not a backend implementation.",
+          "PlaneEvidence": "Dataclass holding opaque sealed attestation evidence. Data shape, not a backend implementation.",
+          "PlaneVerdict": "Dataclass representing verification outcome. Data shape, not a backend implementation.",
+          "PlaneHealthStatus": "Enum of plane availability and health states. Data shape, not a backend implementation.",
+          "PlaneError": "Opaque AO-002 error type. Error shape, not a backend implementation.",
+          "PlaneErrorKind": "Internal audit classification for plane errors. Error shape, not a backend implementation."
+        },
+        "node": {
+          "BasePlaneAdapter": "Base class defining the port contract and gates. Abstract base, not a leaf adapter.",
+          "PlaneRegistry": "Registry and dispatcher managing plane adapters. Dispatches to backends; not a leaf adapter.",
+          "PlaneKind": "Closed enum of execution plane identifiers. Data shape, not a backend implementation.",
+          "PlaneAssurance": "Enum of attestation assurance levels. Data shape, not a backend implementation.",
+          "PlaneHealthStatus": "Enum of plane availability and health states. Data shape, not a backend implementation.",
+          "PlaneErrorKind": "Internal audit classification for plane errors. Error shape, not a backend implementation.",
+          "PlaneError": "Opaque AO-002 error type. Error shape, not a backend implementation.",
+          "parsePlaneKind": "Helper utility for case-insensitive alias parsing. Utility function, not a backend.",
+          "computeEvidenceRef": "Helper utility for computing SHA-256 evidence refs. Utility function, not a backend."
+        }
+      }
     }
   ],
   "coverage": {
@@ -411,6 +472,98 @@
       "INV-3-lite-does-not-egress": {
         "state": "partial",
         "note": "Python asserts AUTO with no token resolves without any socket or DNS activity; Node asserts it without calling the gateway. Resolution under a PRESENT token with an unreachable backend is unobserved on both sides."
+      },
+      "INV-4-same-input-same-decision-across-versions": {
+        "state": "none"
+      },
+      "INV-5-decisions-independently-verifiable": {
+        "state": "none"
+      },
+      "INV-6-no-secrets-on-the-surface": {
+        "state": "none"
+      },
+      "INV-7-no-irreversible-destruction-from-a-single-trigger": {
+        "state": "none"
+      }
+    },
+    "plane-local": {
+      "INV-1-undeclared-never-egresses": {
+        "state": "none"
+      },
+      "INV-2-undecidable-never-passes": {
+        "state": "none"
+      },
+      "INV-3-lite-does-not-egress": {
+        "state": "none"
+      },
+      "INV-4-same-input-same-decision-across-versions": {
+        "state": "none"
+      },
+      "INV-5-decisions-independently-verifiable": {
+        "state": "none"
+      },
+      "INV-6-no-secrets-on-the-surface": {
+        "state": "none"
+      },
+      "INV-7-no-irreversible-destruction-from-a-single-trigger": {
+        "state": "none"
+      }
+    },
+    "plane-aws": {
+      "INV-1-undeclared-never-egresses": {
+        "state": "none"
+      },
+      "INV-2-undecidable-never-passes": {
+        "state": "none"
+      },
+      "INV-3-lite-does-not-egress": {
+        "state": "none"
+      },
+      "INV-4-same-input-same-decision-across-versions": {
+        "state": "none"
+      },
+      "INV-5-decisions-independently-verifiable": {
+        "state": "none"
+      },
+      "INV-6-no-secrets-on-the-surface": {
+        "state": "none"
+      },
+      "INV-7-no-irreversible-destruction-from-a-single-trigger": {
+        "state": "none"
+      }
+    },
+    "plane-azure": {
+      "INV-1-undeclared-never-egresses": {
+        "state": "none"
+      },
+      "INV-2-undecidable-never-passes": {
+        "state": "none"
+      },
+      "INV-3-lite-does-not-egress": {
+        "state": "none"
+      },
+      "INV-4-same-input-same-decision-across-versions": {
+        "state": "none"
+      },
+      "INV-5-decisions-independently-verifiable": {
+        "state": "none"
+      },
+      "INV-6-no-secrets-on-the-surface": {
+        "state": "none"
+      },
+      "INV-7-no-irreversible-destruction-from-a-single-trigger": {
+        "state": "none"
+      }
+    },
+    "plane-gcp": {
+      "INV-1-undeclared-never-egresses": {
+        "state": "none"
+      },
+      "INV-2-undecidable-never-passes": {
+        "state": "none"
+      },
+      "INV-3-lite-does-not-egress": {
+        "state": "none"
       },
       "INV-4-same-input-same-decision-across-versions": {
         "state": "none"

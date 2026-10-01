@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+### Added — declared `action` on boundary decisions
+- `CheckBoundaryArgs.action` and `ToolCallArgs.action` (`"read"` or
+  `"write"`): what the caller will do at `destination`. Sent verbatim as
+  top-level `action`, only when set; an unset `action` leaves the request body
+  byte-identical. `toolAllowed` passes it through.
+- Aegis Core waives the two-person approval for a registered public-read source
+  only when the request declares `action: "read"` (compared byte for byte).
+  Declaring nothing or `"write"` keeps the approval; servers that predate the
+  field ignore it. Upgrade order for a collector that relies on the exemption:
+  this SDK → the collector (send `action: "read"`) → the Core build that
+  requires the declaration.
+
+### Added — receipt fields on `BoundaryDecisionView`
+- `boundary_receipt?` / `boundary_receipt_error?` are now declared on the view
+  type. `checkBoundary` already returns the response body as received, so keys
+  the interface does not declare stay on the object; forward it whole when a
+  third party must check the decision against the receipt.
+
+## [0.11.0] - 2026-09-23
+
+### Added — 3-Tier Value-Free Product Status Notification System (#283)
+- Product status notification mechanism with strict 3-tier separation:
+  - Tier 1: Local runtime exceptions and standard error paths (zero external network I/O, INV-3 enforced).
+  - Tier 2: SIEM / structured security audit stream via pluggable transport (AO-002 value-free reporting).
+  - Tier 3: Asynchronous alert notifications (webhook / CLI sink).
+- Guaranteed zero-egress default with explicit isolation from user data payload.
+
+### Added — Execution Plane Adapter Port and Core Isolation (#284)
+- Unified execution plane backend interface for agent, data, and usecase execution planes.
+- Four architectural invariants strictly enforced: dependency direction, extensibility, structural opacity (opaque sealed blob), and cross-boundary refusal.
+- Core SDK modules isolated from concrete cloud identifiers via `PlaneKind` closed enum and `PlaneRegistry`.
+
 ### Added — Core attestation verifier (S051 ③; both SDKs)
 - `src/attestVerify.ts` — verifies an Aegis Core attestation **and nothing else**. It never
   opens the capsule directory: two implementations answering one question about

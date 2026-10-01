@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aegis-trust"
-version = "0.10.2"
+version = "0.11.0"
 description = "AI agent data access control — control what agents can see"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -72,6 +72,9 @@ Changelog = "https://github.com/nemotek-inc/aegis-trust/blob/main/python/CHANGEL
 full = [
     "httpx>=0.23,<1.0",
     "attrs>=22.2,<27.0",
+]
+notify = [
+    "httpx>=0.23,<1.0",
 ]
 yaml = [
     "pyyaml>=6.0",
