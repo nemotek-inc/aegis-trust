@@ -101,7 +101,7 @@ dev = [
     # that PR is not mergeable by moving the pin alone — the triage list is its
     # acceptance criteria. Every other gate input in this repo is pinned
     # (actions to 40-char SHAs); this is the same discipline for the linter.
-    "ruff==0.15.22",
+    "ruff==0.16.9",
     "mypy>=1.8",
     "pyyaml>=6.0",
     "pip-audit>=2.7",
@@ -122,6 +122,12 @@ aegis = "aegis_trust.pytest_plugin"
 markers = [
     "integration: marks tests that require external services or long-running CI scripts",
 ]
+
+[tool.ruff.lint]
+# ruff 0.16 widened its default rule set (235 new findings here). Keep the set
+# this package has been held to, ruff's pre-0.16 default; widening it is a
+# separate change, not a side effect of a tool bump.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
 # Type-safety gate runs `mypy --strict .` from package
