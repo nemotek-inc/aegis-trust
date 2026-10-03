@@ -69,8 +69,8 @@ CONTENTS_WRITE_JOBS = {"resolve-release", "collect-and-sign", "sign-sdk"}
 DEPENDENCY_EXEC = re.compile(
     r"\b(npm\s+(ci|install|i|run|run-script|exec|rebuild|test)\b|npx\s|yarn\b|pnpm\b|\btsc\b"
     r"|\bnode\s+(-e\b|[^-\s][^\s]*\.(js|mjs|cjs)\b)"
-    r"|pip3?\s+install\b|python3?\s+-m\s+pip\s+install\b|python3?\s+-m\s+build\b"
-    r"|cargo\s+(install|build|run|test)\b|uv\s+(pip|sync|run)\b|curl\b[^\n|]*\|\s*(ba)?sh\b|wget\b[^\n|]*\|\s*(ba)?sh\b)"
+    r"|pip3?\s+install\b|python(3(\.\d+)?)?[\"']?\s+-m\s*pip\s+install\b|python(3(\.\d+)?)?[\"']?\s+-m\s*build\b|pyproject-build\b"
+    r"|cargo\s+(install|build|run|test)\b|\bmake\b|uv\s+(pip|sync|run)\b|curl\b[^\n|]*\|\s*(ba)?sh\b|wget\b[^\n|]*\|\s*(ba)?sh\b)"
 )
 
 # What a job holding a write permission may NOT invoke in `run:` (judged at
@@ -268,7 +268,9 @@ def test_dependency_exec_detector_catches_npm_run_and_node():
     for sample in ("npm run build", "npm run-script compile", "npm exec tsc", "npx -y cdxgen@10",
                    "node scripts/build.js", "node -e 'require(1)'", "tsc --noEmit",
                    "python3 -m build --no-isolation", "pip install build", "yarn install", "pnpm i",
-                   "cargo build --release", "curl -sSf https://x | sh"):
+                   "cargo build --release", "curl -sSf https://x | sh",
+                   "python3.12 -m pip install x", "python -mpip install x", "pyproject-build", "make dist",
+                   '"$RUNNER_TEMP/venv-build/bin/python" -m build --no-isolation'):
         assert DEPENDENCY_EXEC.search(sample), f"detector misses: {sample!r}"
     for sample in ("npm publish dist.tgz --provenance", "npm view aegis-trust versions", "npm dist-tag ls aegis-trust",
                    "cosign sign-blob --yes file", "git push origin refs/tags/v1", "ls -la sdk-artifacts/"):
@@ -286,6 +288,37 @@ def test_dependency_exec_detector_catches_npm_run_and_node():
     assert "node" in cmds and cmds.count("node") == 1, cmds   # the real `node scripts/build.js`, not the comment
     assert ("npm", "view") in words and ("npm", "publish") in words
     assert "python" not in cmds and "python3" not in cmds and "pyproject.toml" not in cmds
+
+
+def test_no_job_calls_a_reusable_workflow():
+    """A job-level `uses:` runs another workflow's code under this job's
+    permissions and is invisible to the step-level detectors above."""
+    wf = _load()
+    offenders = [name for name, job in _jobs(wf).items() if "uses" in job]
+    assert not offenders, f"jobs calling a reusable workflow: {offenders}"
+
+
+def test_privileged_jobs_download_artifacts_by_exact_name():
+    """A privileged job that downloads artifacts must say which: without
+    `name:` (or a narrow `pattern:`), download-artifact fetches every artifact
+    of the run, including what the read-only build job uploaded — and a file a
+    compromised dependency planted there would be signed here (audit F-01)."""
+    wf = _load()
+    for name, job in _jobs(wf).items():
+        perms = _effective_permissions(wf, job)
+        if not any(v == "write" for v in perms.values()):
+            continue
+        for step in job.get("steps", []):
+            uses = str(step.get("uses", "")) if isinstance(step, dict) else ""
+            if not uses.startswith("actions/download-artifact@"):
+                continue
+            with_ = step.get("with") or {}
+            assert with_.get("name") or with_.get("pattern"), (
+                f"job {name}: download-artifact without name:/pattern: downloads every artifact of the run: {step.get('name')!r}"
+            )
+            assert not with_.get("pattern") or not str(with_["pattern"]).startswith("*"), (
+                f"job {name}: download-artifact pattern too broad: {with_['pattern']!r}"
+            )
 
 
 def test_every_action_is_pinned_to_a_commit_sha():
@@ -317,7 +350,9 @@ def test_python_build_tools_are_hash_pinned_and_build_is_isolation_free():
         assert not re.search(r"\b(build|hatchling)\b", line), (
             f"an unpinned `pip install` of the build tools is still in the workflow: {line.strip()!r}"
         )
-    builds = re.findall(r"python3?\s+-m\s+build\b[^\n]*", text)
+    # The interpreter may be a quoted venv path: `"$RUNNER_TEMP/venv-build/bin/python" -m build`.
+    builds = re.findall(r"python(3(\.\d+)?)?[\"']?\s+-m\s*build\b[^\n]*", text)
+    builds = [m.group(0) for m in re.finditer(r"python(3(\.\d+)?)?[\"']?\s+-m\s*build\b[^\n]*", text)]
     assert builds, "no `python -m build` step found"
     for line in builds:
         assert "--no-isolation" in line, (
