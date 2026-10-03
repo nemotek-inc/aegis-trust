@@ -13,7 +13,7 @@
   `python -m build --no-isolation`, so the unpinned `[build-system] requires` of
   `pyproject.toml` is never resolved from the index at release time. The SBOM
   generator is pinned to an exact version.
-- `tests/adversarial/test_redteam_S077_release_workflow_permissions.py` computes each
+- `python/tests/adversarial/test_redteam_S077_release_workflow_permissions.py` computes each
   job's effective permissions from the YAML and keeps this boundary: a job that runs
   dependency code holds no write permission; a job with write / OIDC runs none.
   No change to the published package.

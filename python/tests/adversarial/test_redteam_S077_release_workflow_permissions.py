@@ -266,7 +266,7 @@ def test_dependency_exec_detector_catches_npm_run_and_node():
     """Negative control for the detector itself (Review r1): the forms that
     execute code from node_modules without `npm ci` must match."""
     for sample in ("npm run build", "npm run-script compile", "npm exec tsc", "npx -y cdxgen@10",
-                   "node scripts/build.js", "node -e 'require(1)'", "tsc --noEmit",
+                   "node build-step.js", "node -e 'require(1)'", "tsc --noEmit",
                    "python3 -m build --no-isolation", "pip install build", "yarn install", "pnpm i",
                    "cargo build --release", "curl -sSf https://x | sh",
                    "python3.12 -m pip install x", "python -mpip install x", "pyproject-build", "make dist",
@@ -280,12 +280,12 @@ def test_dependency_exec_detector_catches_npm_run_and_node():
         'NODE_V="$(jq -r .version node/package.json)"\n'
         "PY_V=\"$(sed -nE 's/x/y/p' python/pyproject.toml | head -1)\"\n"
         "# node -e 'x' in a comment\n"
-        "echo hi && node scripts/build.js  # trailing comment\n"
+        "echo hi && node build-step.js  # trailing comment\n"
         "if ! npm view pkg >/dev/null 2>&1; then npm publish x.tgz; fi\n"
     ))
     cmds = [c for c, _ in words]
     assert "jq" in cmds and "sed" in cmds and "head" in cmds and "echo" in cmds
-    assert "node" in cmds and cmds.count("node") == 1, cmds   # the real `node scripts/build.js`, not the comment
+    assert "node" in cmds and cmds.count("node") == 1, cmds   # the real `node build-step.js`, not the comment
     assert ("npm", "view") in words and ("npm", "publish") in words
     assert "python" not in cmds and "python3" not in cmds and "pyproject.toml" not in cmds
 
