@@ -63,11 +63,59 @@ CONTENTS_WRITE_JOBS = {"resolve-release", "collect-and-sign", "sign-sdk"}
 
 # A `run:` line that pulls or executes dependency code. Conservative on
 # purpose: `npm ci` is lockfile-bound and still counts — the lockfile pins
-# *what* runs, not *with which token* it runs.
+# *what* runs, not *with which token* it runs. `npm run <script>` / `node …` /
+# `tsc` execute code from node_modules (Review r1: moving `npm run build` into
+# a privileged job must not slip past this rule), so they count too.
 DEPENDENCY_EXEC = re.compile(
-    r"\b(npm\s+(ci|install|i)\b|npx\s|pip3?\s+install\b|python3?\s+-m\s+pip\s+install\b"
-    r"|python3?\s+-m\s+build\b|cargo\s+install\b|uv\s+(pip|sync|run)\b|curl\b[^\n|]*\|\s*(ba)?sh\b)"
+    r"\b(npm\s+(ci|install|i|run|run-script|exec|rebuild|test)\b|npx\s|yarn\b|pnpm\b|\btsc\b"
+    r"|\bnode\s+(-e\b|[^-\s][^\s]*\.(js|mjs|cjs)\b)"
+    r"|pip3?\s+install\b|python3?\s+-m\s+pip\s+install\b|python3?\s+-m\s+build\b"
+    r"|cargo\s+(install|build|run|test)\b|uv\s+(pip|sync|run)\b|curl\b[^\n|]*\|\s*(ba)?sh\b|wget\b[^\n|]*\|\s*(ba)?sh\b)"
 )
+
+# What a job holding a write permission may NOT invoke in `run:` (judged at
+# command position, so a path like `python/pyproject.toml` or
+# `node/package.json` passed as an argument does not count). `npm` is allowed
+# only for the registry verbs the publish job needs (`view`, `publish`,
+# `dist-tag`) — never `ci` / `install` / `run` / `exec`.
+PRIVILEGED_FORBIDDEN_COMMANDS = {
+    "npx", "node", "tsc", "yarn", "pnpm", "pip", "pip3", "python", "python3",
+    "cargo", "rustc", "curl", "wget", "make", "uv", "docker",
+}
+NPM_ALLOWED_VERBS = {"view", "publish", "dist-tag"}
+# Words that precede the real command on a shell line.
+_SHELL_WRAPPERS = {
+    "sudo", "env", "nice", "nohup", "time", "exec", "command", "if", "then", "else", "elif",
+    "while", "until", "do", "!", "[", "[[", "test",
+}
+_SEGMENT_SPLIT = re.compile(r"\|\||&&|;|\||\$\(|\(|\{|\}|\)|`")
+
+
+def _strip_shell_comments(text: str) -> str:
+    """Drop whole-line comments and ` # …` tails. `${VAR#pat}` is not a comment
+    (no whitespace before the `#`), so it survives."""
+    out = []
+    for raw in text.splitlines():
+        if raw.lstrip().startswith("#"):
+            continue
+        out.append(re.sub(r"\s#.*$", "", raw))
+    return "\n".join(out)
+
+
+def _command_words(run_text: str):
+    """Yield (command, next_word) for every command position in the shell text:
+    the first word of each `;` / `&&` / `||` / `|` / `$(` segment once leading
+    `VAR=value` assignments, redirections and wrappers are skipped."""
+    for line in _strip_shell_comments(run_text).splitlines():
+        for seg in _SEGMENT_SPLIT.split(line):
+            words = seg.strip().split()
+            while words and (re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])
+                             or words[0] in _SHELL_WRAPPERS or words[0].startswith(("-", "<", ">", "2>"))):
+                words.pop(0)
+            if not words:
+                continue
+            cmd = words[0].strip("\"'").rsplit("/", 1)[-1]
+            yield cmd, (words[1] if len(words) > 1 else "")
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
@@ -110,7 +158,9 @@ def _run_text(job: dict) -> str:
 
 
 def _executes_dependencies(job: dict) -> bool:
-    return bool(DEPENDENCY_EXEC.search(_run_text(job)))
+    # Comments are not commands: a comment that names `npm install` must not
+    # make a job look like it runs dependency code.
+    return bool(DEPENDENCY_EXEC.search(_strip_shell_comments(_run_text(job))))
 
 
 # ── 1. workflow default is read-only ──────────────────────────────
@@ -185,6 +235,57 @@ def test_privileged_jobs_run_no_dependency_code():
             f"job {name} holds a write permission ({perms}) and installs/executes dependencies: "
             f"{_run_text(job)[:400]!r}"
         )
+
+
+def test_privileged_jobs_invoke_only_signing_and_release_tools():
+    """Positive constraint on the privileged jobs (Review r1): not just "no
+    dependency install", but no interpreter or package manager at all in their
+    `run:` steps, and `npm` only as a registry client. A future `npm run build`
+    or `node script.js` added to `sign-sdk` is red here even if the
+    DEPENDENCY_EXEC regex were to miss it."""
+    wf = _load()
+    for name, job in _jobs(wf).items():
+        perms = _effective_permissions(wf, job)
+        if not any(v == "write" for v in perms.values()):
+            continue
+        hits = []
+        for cmd, nxt in _command_words(_run_text(job)):
+            if cmd in PRIVILEGED_FORBIDDEN_COMMANDS:
+                hits.append(cmd)
+            elif cmd == "npm" and nxt not in NPM_ALLOWED_VERBS:
+                hits.append(f"npm {nxt}")
+            elif cmd in ("sh", "bash") and nxt == "-c":
+                hits.append(f"{cmd} -c")
+        assert not hits, (
+            f"job {name} holds a write permission ({perms}) and invokes an interpreter / package "
+            f"manager at a command position in a run step: {hits[:8]}"
+        )
+
+
+def test_dependency_exec_detector_catches_npm_run_and_node():
+    """Negative control for the detector itself (Review r1): the forms that
+    execute code from node_modules without `npm ci` must match."""
+    for sample in ("npm run build", "npm run-script compile", "npm exec tsc", "npx -y cdxgen@10",
+                   "node scripts/build.js", "node -e 'require(1)'", "tsc --noEmit",
+                   "python3 -m build --no-isolation", "pip install build", "yarn install", "pnpm i",
+                   "cargo build --release", "curl -sSf https://x | sh"):
+        assert DEPENDENCY_EXEC.search(sample), f"detector misses: {sample!r}"
+    for sample in ("npm publish dist.tgz --provenance", "npm view aegis-trust versions", "npm dist-tag ls aegis-trust",
+                   "cosign sign-blob --yes file", "git push origin refs/tags/v1", "ls -la sdk-artifacts/"):
+        assert not DEPENDENCY_EXEC.search(sample), f"detector false-positive: {sample!r}"
+    # Command-position parsing: paths are arguments, not commands; comments are not commands.
+    words = list(_command_words(
+        'NODE_V="$(jq -r .version node/package.json)"\n'
+        "PY_V=\"$(sed -nE 's/x/y/p' python/pyproject.toml | head -1)\"\n"
+        "# node -e 'x' in a comment\n"
+        "echo hi && node scripts/build.js  # trailing comment\n"
+        "if ! npm view pkg >/dev/null 2>&1; then npm publish x.tgz; fi\n"
+    ))
+    cmds = [c for c, _ in words]
+    assert "jq" in cmds and "sed" in cmds and "head" in cmds and "echo" in cmds
+    assert "node" in cmds and cmds.count("node") == 1, cmds   # the real `node scripts/build.js`, not the comment
+    assert ("npm", "view") in words and ("npm", "publish") in words
+    assert "python" not in cmds and "python3" not in cmds and "pyproject.toml" not in cmds
 
 
 def test_every_action_is_pinned_to_a_commit_sha():
