@@ -286,17 +286,23 @@ jobs:
       - name: Run 9-verifier dogfood (P0 fail-closed; pending P1 accepted)
         env:
           AEGIS_QUALITY_GATE_PATH: ${{ vars.AEGIS_QUALITY_GATE_PATH }}
+          # Workflow inputs and outputs reach the shell through env, never by
+          # interpolation into the script (a dispatch input is attacker-shaped
+          # text; audit F-05).
+          RELEASE_TAG_OUT: ${{ needs.resolve-release.outputs.release_tag }}
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          TAG="${{ needs.resolve-release.outputs.release_tag }}"
+          TAG="$RELEASE_TAG_OUT"
           if [ -n "$TAG" ] && ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
             echo "release_tag '$TAG' is not a release version" >&2; exit 2
           fi
           # Gate label only. A branch ref does not start with refs/tags/, so
           # strip only when it is a tag ref; otherwise use the dispatch label.
           if [ -z "$TAG" ]; then case "$GITHUB_REF" in refs/tags/*) TAG="${GITHUB_REF#refs/tags/}" ;; esac; fi
-          [ -n "$TAG" ] || TAG="${{ inputs.tag }}"
+          [ -n "$TAG" ] || TAG="$DISPATCH_TAG"
           [ -n "$TAG" ] || TAG="manual-dispatch"
+          printf '%s' "$TAG" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' || { echo "gate label '$TAG' is not a plain tag-shaped word" >&2; exit 2; }
           bash "${AEGIS_QUALITY_GATE_PATH:?repository variable AEGIS_QUALITY_GATE_PATH is not set}" "$TAG" "$GITHUB_WORKSPACE"
 
   sbom-node:
@@ -416,17 +422,37 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ needs.resolve-release.outputs.release_tag || github.ref }}
+          # This job holds contents: write; nothing here needs the token in .git/config.
+          persist-credentials: false
 
-      - name: Download SBOMs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          path: sbom-input
-
-      - name: Collect SBOMs into single dir
+      # Only the two SBOM artifacts, each by its exact name — never "every
+      # artifact of the run". build-sdk (read-only, runs dependency code)
+      # uploads its own artifact in the same run; an unfiltered download would
+      # let a file it planted be signed here as an SBOM (2026-10-03 audit F-01).
+      # The workspace persists on the self-hosted runner, so start empty.
+      - name: Fresh SBOM workspace
         run: |
           set -euo pipefail
-          mkdir -p sbom
-          find sbom-input -name '*.cdx.json' -exec cp {} sbom/ \;
+          rm -rf sbom
+          mkdir sbom
+
+      - name: Download the Node SBOM
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: sbom-node
+          path: sbom
+
+      - name: Download the Python SBOM
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: sbom-python
+          path: sbom
+
+      - name: Exactly the two expected SBOMs, nothing else
+        run: |
+          set -euo pipefail
+          got="$(ls sbom | sort | tr '\n' ' ')"
+          [ "$got" = "aegis-trust-node.cdx.json aegis-trust-python.cdx.json " ] || { echo "unexpected SBOM set: $got" >&2; exit 1; }
           ls -la sbom/
 
       # Sigstore cosign keyless signing — private repo でも動作 (OIDC + Rekor 公開 log)。
@@ -557,8 +583,19 @@ jobs:
         # refuses anything that is not in that file or does not match a hash.
         # Regenerate with `pip-compile --generate-hashes --allow-unsafe
         # --output-file requirements-build.txt requirements-build.in` in python/.
+        # The tools go into a per-job venv under RUNNER_TEMP (outside the
+        # package dir, so the sdist cannot pick it up), not the host's global
+        # site-packages: `build --no-isolation` imports the backend from the
+        # environment it runs in, and hatchling loads plugins by entry point,
+        # so the environment must contain exactly the 8 pinned wheels and
+        # nothing a previous job left behind (audit F-04). No
+        # --break-system-packages any more.
         working-directory: python
-        run: python3 -m pip install --no-cache-dir --break-system-packages --require-hashes -r requirements-build.txt
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/venv-build"
+          "$RUNNER_TEMP/venv-build/bin/python" -m pip install --no-cache-dir --require-hashes -r requirements-build.txt
+          "$RUNNER_TEMP/venv-build/bin/python" -m pip list --format=freeze
 
       - name: Build npm tarball
         working-directory: node
@@ -581,11 +618,11 @@ jobs:
           set -euo pipefail
           # python3 (versioned) to match the rest of the job — Homebrew Python
           # installs `python3` only, no unversioned `python` symlink.
-          # --no-isolation: build in THIS environment, where the build backend
-          # was installed hash-pinned above. The default isolated build env
+          # --no-isolation: build in the venv where the build backend was
+          # installed hash-pinned above. The default isolated build env
           # re-resolves `[build-system] requires` from pyproject.toml (unpinned
           # `hatchling`) from the index — the exact fetch the pin exists to stop.
-          python3 -m build --no-isolation
+          "$RUNNER_TEMP/venv-build/bin/python" -m build --no-isolation
           ls -la dist/
 
       - name: Collect SDK artifacts into single dir
@@ -633,7 +670,9 @@ jobs:
           name: sdk-artifacts-unsigned
           path: sdk-artifacts
 
-      - name: Accept exactly this run's artifacts (one tgz, one wheel, one sdist; nothing pre-signed)
+      - name: Accept exactly this run's artifacts (one tgz, one wheel, one sdist of THIS version; nothing pre-signed)
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
         run: |
           set -euo pipefail
           ls -la sdk-artifacts/
@@ -644,6 +683,14 @@ jobs:
           [ "$(find sdk-artifacts -maxdepth 1 -name 'aegis_trust-*.tar.gz' | wc -l | tr -d ' ')" = "1" ] || { echo "expected one sdist" >&2; exit 1; }
           if find sdk-artifacts -maxdepth 1 \( -name '*.sig' -o -name '*.pem' \) | grep -q .; then
             echo "a signature or certificate arrived with the unsigned bundle — refusing to sign over it" >&2; exit 1
+          fi
+          # On a release run the three files must carry the version the tag
+          # names: the signed set is bound to what this release is (audit F-03).
+          if [ -n "$RELEASE_TAG" ]; then
+            V="${RELEASE_TAG#v}"
+            for f in "aegis-trust-$V.tgz" "aegis_trust-$V-py3-none-any.whl" "aegis_trust-$V.tar.gz"; do
+              [ -f "sdk-artifacts/$f" ] || { echo "release $RELEASE_TAG: expected sdk-artifacts/$f from build-sdk, not found" >&2; exit 1; }
+            done
           fi
 
       - name: Install cosign
