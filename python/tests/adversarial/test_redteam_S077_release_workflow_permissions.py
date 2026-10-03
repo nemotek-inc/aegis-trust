@@ -79,14 +79,44 @@ DEPENDENCY_EXEC = re.compile(
 # only for the registry verbs the publish job needs (`view`, `publish`,
 # `dist-tag`) — never `ci` / `install` / `run` / `exec`.
 PRIVILEGED_FORBIDDEN_COMMANDS = {
-    "npx", "node", "tsc", "yarn", "pnpm", "pip", "pip3", "python", "python3",
-    "cargo", "rustc", "curl", "wget", "make", "uv", "docker",
+    "npx",
+    "node",
+    "tsc",
+    "yarn",
+    "pnpm",
+    "pip",
+    "pip3",
+    "python",
+    "python3",
+    "cargo",
+    "rustc",
+    "curl",
+    "wget",
+    "make",
+    "uv",
+    "docker",
 }
 NPM_ALLOWED_VERBS = {"view", "publish", "dist-tag"}
 # Words that precede the real command on a shell line.
 _SHELL_WRAPPERS = {
-    "sudo", "env", "nice", "nohup", "time", "exec", "command", "if", "then", "else", "elif",
-    "while", "until", "do", "!", "[", "[[", "test",
+    "sudo",
+    "env",
+    "nice",
+    "nohup",
+    "time",
+    "exec",
+    "command",
+    "if",
+    "then",
+    "else",
+    "elif",
+    "while",
+    "until",
+    "do",
+    "!",
+    "[",
+    "[[",
+    "test",
 }
 _SEGMENT_SPLIT = re.compile(r"\|\||&&|;|\||\$\(|\(|\{|\}|\)|`")
 
@@ -109,13 +139,17 @@ def _command_words(run_text: str):
     for line in _strip_shell_comments(run_text).splitlines():
         for seg in _SEGMENT_SPLIT.split(line):
             words = seg.strip().split()
-            while words and (re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])
-                             or words[0] in _SHELL_WRAPPERS or words[0].startswith(("-", "<", ">", "2>"))):
+            while words and (
+                re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])
+                or words[0] in _SHELL_WRAPPERS
+                or words[0].startswith(("-", "<", ">", "2>"))
+            ):
                 words.pop(0)
             if not words:
                 continue
             cmd = words[0].strip("\"'").rsplit("/", 1)[-1]
             yield cmd, (words[1] if len(words) > 1 else "")
+
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
@@ -128,7 +162,10 @@ def _non_comment_text() -> str:
     """The executable region of the YAML: every line with its `#…` tail removed.
     The header documents the forbidden strings by writing them; raw-text checks
     must not false-trigger on documentation."""
-    return "\n".join(line.split("#", 1)[0] for line in WORKFLOW.read_text(encoding="utf-8").splitlines())
+    return "\n".join(
+        line.split("#", 1)[0]
+        for line in WORKFLOW.read_text(encoding="utf-8").splitlines()
+    )
 
 
 def _jobs(wf: dict) -> dict:
@@ -154,7 +191,11 @@ def _effective_permissions(wf: dict, job: dict) -> dict:
 
 
 def _run_text(job: dict) -> str:
-    return "\n".join(str(step.get("run", "")) for step in job.get("steps", []) if isinstance(step, dict))
+    return "\n".join(
+        str(step.get("run", ""))
+        for step in job.get("steps", [])
+        if isinstance(step, dict)
+    )
 
 
 def _executes_dependencies(job: dict) -> bool:
@@ -181,7 +222,8 @@ def test_workflow_default_permissions_are_contents_read_only():
 def test_id_token_write_only_in_oidc_jobs():
     wf = _load()
     holders = {
-        name for name, job in _jobs(wf).items()
+        name
+        for name, job in _jobs(wf).items()
         if _effective_permissions(wf, job).get("id-token") == "write"
     }
     assert holders == OIDC_JOBS, (
@@ -192,7 +234,8 @@ def test_id_token_write_only_in_oidc_jobs():
 def test_contents_write_only_in_release_writing_jobs():
     wf = _load()
     holders = {
-        name for name, job in _jobs(wf).items()
+        name
+        for name, job in _jobs(wf).items()
         if _effective_permissions(wf, job).get("contents") == "write"
     }
     assert holders == CONTENTS_WRITE_JOBS, (
@@ -215,7 +258,9 @@ def test_dependency_executing_jobs_hold_no_write_permission():
         writes = {k: v for k, v in perms.items() if v == "write"}
         if writes:
             offenders.append((name, writes))
-    assert seen_any, "no job installs dependencies — the detector regex no longer matches this workflow; fix the test"
+    assert seen_any, (
+        "no job installs dependencies — the detector regex no longer matches this workflow; fix the test"
+    )
     assert not offenders, (
         "jobs that install or execute dependencies must hold no write permission at all; "
         f"offenders: {offenders}"
@@ -265,29 +310,57 @@ def test_privileged_jobs_invoke_only_signing_and_release_tools():
 def test_dependency_exec_detector_catches_npm_run_and_node():
     """Negative control for the detector itself (Review r1): the forms that
     execute code from node_modules without `npm ci` must match."""
-    for sample in ("npm run build", "npm run-script compile", "npm exec tsc", "npx -y cdxgen@10",
-                   "node build-step.js", "node -e 'require(1)'", "tsc --noEmit",
-                   "python3 -m build --no-isolation", "pip install build", "yarn install", "pnpm i",
-                   "cargo build --release", "curl -sSf https://x | sh",
-                   "python3.12 -m pip install x", "python -mpip install x", "pyproject-build", "make dist",
-                   '"$RUNNER_TEMP/venv-build/bin/python" -m build --no-isolation'):
+    for sample in (
+        "npm run build",
+        "npm run-script compile",
+        "npm exec tsc",
+        "npx -y cdxgen@10",
+        "node build-step.js",
+        "node -e 'require(1)'",
+        "tsc --noEmit",
+        "python3 -m build --no-isolation",
+        "pip install build",
+        "yarn install",
+        "pnpm i",
+        "cargo build --release",
+        "curl -sSf https://x | sh",
+        "python3.12 -m pip install x",
+        "python -mpip install x",
+        "pyproject-build",
+        "make dist",
+        '"$RUNNER_TEMP/venv-build/bin/python" -m build --no-isolation',
+    ):
         assert DEPENDENCY_EXEC.search(sample), f"detector misses: {sample!r}"
-    for sample in ("npm publish dist.tgz --provenance", "npm view aegis-trust versions", "npm dist-tag ls aegis-trust",
-                   "cosign sign-blob --yes file", "git push origin refs/tags/v1", "ls -la sdk-artifacts/"):
-        assert not DEPENDENCY_EXEC.search(sample), f"detector false-positive: {sample!r}"
+    for sample in (
+        "npm publish dist.tgz --provenance",
+        "npm view aegis-trust versions",
+        "npm dist-tag ls aegis-trust",
+        "cosign sign-blob --yes file",
+        "git push origin refs/tags/v1",
+        "ls -la sdk-artifacts/",
+    ):
+        assert not DEPENDENCY_EXEC.search(sample), (
+            f"detector false-positive: {sample!r}"
+        )
     # Command-position parsing: paths are arguments, not commands; comments are not commands.
-    words = list(_command_words(
-        'NODE_V="$(jq -r .version node/package.json)"\n'
-        "PY_V=\"$(sed -nE 's/x/y/p' python/pyproject.toml | head -1)\"\n"
-        "# node -e 'x' in a comment\n"
-        "echo hi && node build-step.js  # trailing comment\n"
-        "if ! npm view pkg >/dev/null 2>&1; then npm publish x.tgz; fi\n"
-    ))
+    words = list(
+        _command_words(
+            'NODE_V="$(jq -r .version node/package.json)"\n'
+            "PY_V=\"$(sed -nE 's/x/y/p' python/pyproject.toml | head -1)\"\n"
+            "# node -e 'x' in a comment\n"
+            "echo hi && node build-step.js  # trailing comment\n"
+            "if ! npm view pkg >/dev/null 2>&1; then npm publish x.tgz; fi\n"
+        )
+    )
     cmds = [c for c, _ in words]
     assert "jq" in cmds and "sed" in cmds and "head" in cmds and "echo" in cmds
-    assert "node" in cmds and cmds.count("node") == 1, cmds   # the real `node build-step.js`, not the comment
+    assert "node" in cmds and cmds.count("node") == 1, (
+        cmds
+    )  # the real `node build-step.js`, not the comment
     assert ("npm", "view") in words and ("npm", "publish") in words
-    assert "python" not in cmds and "python3" not in cmds and "pyproject.toml" not in cmds
+    assert (
+        "python" not in cmds and "python3" not in cmds and "pyproject.toml" not in cmds
+    )
 
 
 def test_no_job_calls_a_reusable_workflow():
@@ -316,9 +389,9 @@ def test_privileged_jobs_download_artifacts_by_exact_name():
             assert with_.get("name") or with_.get("pattern"), (
                 f"job {name}: download-artifact without name:/pattern: downloads every artifact of the run: {step.get('name')!r}"
             )
-            assert not with_.get("pattern") or not str(with_["pattern"]).startswith("*"), (
-                f"job {name}: download-artifact pattern too broad: {with_['pattern']!r}"
-            )
+            assert not with_.get("pattern") or not str(with_["pattern"]).startswith(
+                "*"
+            ), f"job {name}: download-artifact pattern too broad: {with_['pattern']!r}"
 
 
 def test_every_action_is_pinned_to_a_commit_sha():
@@ -330,7 +403,9 @@ def test_every_action_is_pinned_to_a_commit_sha():
                 continue
             assert "@" in uses, f"`uses` in {name} must pin a version: {uses}"
             ref = uses.split("@", 1)[1].strip()
-            assert SHA40.fullmatch(ref), f"`uses` in {name} must pin a 40-hex commit SHA, not a tag: {uses}"
+            assert SHA40.fullmatch(ref), (
+                f"`uses` in {name} must pin a 40-hex commit SHA, not a tag: {uses}"
+            )
 
 
 # ── 5. the Python build is hash-pinned and isolation-free ─────────
@@ -341,7 +416,10 @@ def test_python_build_tools_are_hash_pinned_and_build_is_isolation_free():
     # The step runs with `working-directory: python`, so the file is named
     # relative (`-r requirements-build.txt`); the repo-rooted spelling is
     # accepted too.
-    assert re.search(r"pip\s+install\b[^\n]*--require-hashes[^\n]*-r\s+(python/)?requirements-build\.txt", text), (
+    assert re.search(
+        r"pip\s+install\b[^\n]*--require-hashes[^\n]*-r\s+(python/)?requirements-build\.txt",
+        text,
+    ), (
         "the build-tool install must be `pip install … --require-hashes -r requirements-build.txt`"
     )
     for line in re.findall(r"[^\n]*pip\s+install\b[^\n]*", text):
@@ -352,7 +430,10 @@ def test_python_build_tools_are_hash_pinned_and_build_is_isolation_free():
         )
     # The interpreter may be a quoted venv path: `"$RUNNER_TEMP/venv-build/bin/python" -m build`.
     builds = re.findall(r"python(3(\.\d+)?)?[\"']?\s+-m\s*build\b[^\n]*", text)
-    builds = [m.group(0) for m in re.finditer(r"python(3(\.\d+)?)?[\"']?\s+-m\s*build\b[^\n]*", text)]
+    builds = [
+        m.group(0)
+        for m in re.finditer(r"python(3(\.\d+)?)?[\"']?\s+-m\s*build\b[^\n]*", text)
+    ]
     assert builds, "no `python -m build` step found"
     for line in builds:
         assert "--no-isolation" in line, (
@@ -366,14 +447,20 @@ def test_requirements_build_pins_every_line_with_a_sha256_hash():
     text = REQUIREMENTS.read_text(encoding="utf-8")
     # Join continuation lines so each requirement is one logical line.
     logical = re.sub(r"\\\n\s*", " ", text)
-    reqs = [ln for ln in logical.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    reqs = [
+        ln
+        for ln in logical.splitlines()
+        if ln.strip() and not ln.lstrip().startswith("#")
+    ]
     assert reqs, "requirements-build.txt pins nothing"
     names = set()
     for ln in reqs:
         assert "==" in ln, f"requirement is not pinned to one version: {ln!r}"
         assert "--hash=sha256:" in ln, f"requirement carries no sha256 hash: {ln!r}"
         names.add(ln.split("==", 1)[0].strip().lower())
-    assert {"build", "hatchling"} <= names, f"build and hatchling must both be pinned; got {sorted(names)}"
+    assert {"build", "hatchling"} <= names, (
+        f"build and hatchling must both be pinned; got {sorted(names)}"
+    )
 
 
 # ── 6. the S018 invariants hold here too ──────────────────────────
@@ -388,7 +475,11 @@ def test_no_attestations_permission_anywhere():
     wf = _load()
     blocks = [("workflow", wf.get("permissions"))]
     blocks += [(name, job.get("permissions")) for name, job in _jobs(wf).items()]
-    holders = [where for where, perms in blocks if isinstance(perms, dict) and "attestations" in perms]
+    holders = [
+        where
+        for where, perms in blocks
+        if isinstance(perms, dict) and "attestations" in perms
+    ]
     assert not holders, (
         f"`attestations` appears in the permissions of {holders}; no step calls GitHub's attestations API — remove it"
     )
@@ -396,7 +487,9 @@ def test_no_attestations_permission_anywhere():
 
 def test_no_pull_request_target_and_no_workflow_call():
     text = _non_comment_text()
-    assert "pull_request_target" not in text, "pull_request_target is the fork-PR token-theft vector"
+    assert "pull_request_target" not in text, (
+        "pull_request_target is the fork-PR token-theft vector"
+    )
     assert "workflow_call" not in text, (
         "workflow_call changes the Trusted Publisher identity (top-level workflow filename is what the registries verify)"
     )
@@ -417,5 +510,9 @@ def test_every_job_is_declared_in_the_placement_manifest():
         if len(cells) >= 2 and cells[0] == "release-attestation.yml":
             declared.add(cells[1])
     jobs = set(_jobs(wf))
-    assert jobs <= declared, f"jobs without a placement declaration: {sorted(jobs - declared)}"
-    assert declared <= jobs, f"stale placement declarations (job no longer exists): {sorted(declared - jobs)}"
+    assert jobs <= declared, (
+        f"jobs without a placement declaration: {sorted(jobs - declared)}"
+    )
+    assert declared <= jobs, (
+        f"stale placement declarations (job no longer exists): {sorted(declared - jobs)}"
+    )
