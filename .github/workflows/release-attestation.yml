@@ -12,9 +12,13 @@
 #      workflow_call は **持たない** (registry の Trusted Publisher は top-level workflow
 #      filename を検証するため、caller 経由では identity が変わる)。
 #      pull_request_target を **使わない** (token theft 攻撃面)。
-#   2. permissions に `id-token: write` を持つ — Sigstore keyless signing (cosign)
-#      と GitHub native build provenance (actions/attest-build-provenance) のため。
-#      Block A の ci.yml と完全分離 (ci.yml は read-only contract)。
+#   2. workflow 既定の permissions は `contents: read`。`id-token: write` (Sigstore keyless
+#      signing の OIDC) と `contents: write` (Release への添付、tag の push) は、それを使う
+#      job の block だけが持つ (resolve-release / collect-and-sign / sign-sdk / publish 2 job)。
+#      **依存を取り込み・実行する job (productization-gate / sbom-node / sbom-python /
+#      build-sdk) は read だけ** — 依存の侵害が Release や registry への書込に化けない
+#      (2026-10-03、python/tests/adversarial/test_redteam_S077_release_workflow_permissions.py
+#      が YAML から実効の権限を計算して固定する)。Block A の ci.yml と完全分離。
 #   3. Secrets (NPM_TOKEN / PYPI_TOKEN) は本 workflow は **使わない**。 npm publish は
 #      **Block C で npm Trusted Publisher OIDC** 経由 (token なし、 id-token: write OIDC、
 #      npm ≥11.5.1 で literal supported)。 PyPI publish も **PyPI Trusted Publisher
@@ -99,10 +103,14 @@ on:
     tags:
       - 'v*'
 
+# Default = read. Every write / OIDC grant is a job-level block below, on the
+# job that signs, attaches to the Release, or publishes — and none of those
+# jobs installs or executes dependencies (2026-10-03). A job-level block
+# REPLACES this default for that job; a job without one inherits read only.
+# `attestations: write` was dropped: no step calls GitHub's attestations API
+# (cosign + Sigstore Rekor is the attestation path here).
 permissions:
-  contents: write       # release artifact upload
-  id-token: write       # OIDC token for Sigstore + GitHub native attestation
-  attestations: write   # GitHub native attestation API
+  contents: read
 
 concurrency:
   # Push runs are keyed by COMMIT, not by ref: GitHub keeps one running + one
@@ -145,8 +153,11 @@ jobs:
           SHAPE='^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'
           none() { echo "[resolve-release] $1"; echo "release_tag=" >> "$GITHUB_OUTPUT"; exit 0; }
           # --- the version pin, from all six sources (they must agree) ---
-          NODE_V="$(node -p "require('./node/package.json').version")"
-          PY_V="$(python3 -c "import tomllib; print(tomllib.load(open('python/pyproject.toml','rb'))['project']['version'])")"
+          # Read the pins with jq / sed, not node / python: this job holds
+          # contents: write (it pushes the tag), so it runs no interpreter that
+          # could load repository code (2026-10-03).
+          NODE_V="$(jq -r .version node/package.json)"
+          PY_V="$(sed -nE 's/^version = "([^"]+)"$/\1/p' python/pyproject.toml | head -1)"
           for src in "node/VERSION:$(tr -d '[:space:]' < node/VERSION)" \
                      "python/VERSION:$(tr -d '[:space:]' < python/VERSION)" \
                      "node/src/index.ts:$(sed -nE 's/^export const VERSION = "([^"]+)";?$/\1/p' node/src/index.ts | head -1)" \
@@ -178,7 +189,7 @@ jobs:
           BEFORE="${{ github.event.before }}"
           PREV_V=""
           if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            PREV_V="$(git show "$BEFORE:node/package.json" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || true)"
+            PREV_V="$(git show "$BEFORE:node/package.json" 2>/dev/null | jq -r .version 2>/dev/null || true)"
           fi
           # Peeled ref first (annotated tag → the commit it points at); a
           # lightweight tag has no peeled entry, so fall back to the tag ref.
@@ -275,17 +286,23 @@ jobs:
       - name: Run 9-verifier dogfood (P0 fail-closed; pending P1 accepted)
         env:
           AEGIS_QUALITY_GATE_PATH: ${{ vars.AEGIS_QUALITY_GATE_PATH }}
+          # Workflow inputs and outputs reach the shell through env, never by
+          # interpolation into the script (a dispatch input is attacker-shaped
+          # text; audit F-05).
+          RELEASE_TAG_OUT: ${{ needs.resolve-release.outputs.release_tag }}
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          TAG="${{ needs.resolve-release.outputs.release_tag }}"
+          TAG="$RELEASE_TAG_OUT"
           if [ -n "$TAG" ] && ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
             echo "release_tag '$TAG' is not a release version" >&2; exit 2
           fi
           # Gate label only. A branch ref does not start with refs/tags/, so
           # strip only when it is a tag ref; otherwise use the dispatch label.
           if [ -z "$TAG" ]; then case "$GITHUB_REF" in refs/tags/*) TAG="${GITHUB_REF#refs/tags/}" ;; esac; fi
-          [ -n "$TAG" ] || TAG="${{ inputs.tag }}"
+          [ -n "$TAG" ] || TAG="$DISPATCH_TAG"
           [ -n "$TAG" ] || TAG="manual-dispatch"
+          printf '%s' "$TAG" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' || { echo "gate label '$TAG' is not a plain tag-shaped word" >&2; exit 2; }
           bash "${AEGIS_QUALITY_GATE_PATH:?repository variable AEGIS_QUALITY_GATE_PATH is not set}" "$TAG" "$GITHUB_WORKSPACE"
 
   sbom-node:
@@ -317,7 +334,7 @@ jobs:
           set -euo pipefail
           mkdir -p sbom
           # cdxgen via npx (no global install)、 CycloneDX v1.5 JSON format
-          npx -y @cyclonedx/cdxgen@10 \
+          npx -y @cyclonedx/cdxgen@10.11.0 \
             --type js \
             --output sbom/aegis-trust-node.cdx.json \
             --spec-version 1.5 \
@@ -375,7 +392,7 @@ jobs:
           # cdxgen は --type python で pyproject.toml + lock 系 auto-detect
           # cyclonedx-bom CLI は v7 で flag 仕様変更 (--schema-version 不認識) のため
           # 既に sbom-node で実績ある cdxgen に統一 (single tool variance 0)
-          npx -y @cyclonedx/cdxgen@10 \
+          npx -y @cyclonedx/cdxgen@10.11.0 \
             --type python \
             --output sbom/aegis-trust-python.cdx.json \
             --spec-version 1.5 \
@@ -395,22 +412,47 @@ jobs:
     needs: [resolve-release, sbom-node, sbom-python]
     if: (github.event_name == 'push' && needs.resolve-release.outputs.release_tag != '') || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }}
+    # This job runs no dependency code: it downloads the SBOM artifacts, signs
+    # them (cosign keyless = OIDC) and attaches them to the Release (contents).
+    permissions:
+      contents: write   # softprops/action-gh-release attaches the signed SBOMs
+      id-token: write   # cosign keyless (Sigstore Fulcio / Rekor)
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ needs.resolve-release.outputs.release_tag || github.ref }}
+          # This job holds contents: write; nothing here needs the token in .git/config.
+          persist-credentials: false
 
-      - name: Download SBOMs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          path: sbom-input
-
-      - name: Collect SBOMs into single dir
+      # Only the two SBOM artifacts, each by its exact name — never "every
+      # artifact of the run". build-sdk (read-only, runs dependency code)
+      # uploads its own artifact in the same run; an unfiltered download would
+      # let a file it planted be signed here as an SBOM (2026-10-03 audit F-01).
+      # The workspace persists on the self-hosted runner, so start empty.
+      - name: Fresh SBOM workspace
         run: |
           set -euo pipefail
-          mkdir -p sbom
-          find sbom-input -name '*.cdx.json' -exec cp {} sbom/ \;
+          rm -rf sbom
+          mkdir sbom
+
+      - name: Download the Node SBOM
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: sbom-node
+          path: sbom
+
+      - name: Download the Python SBOM
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: sbom-python
+          path: sbom
+
+      - name: Exactly the two expected SBOMs, nothing else
+        run: |
+          set -euo pipefail
+          got="$(ls sbom | sort | tr '\n' ' ')"
+          [ "$got" = "aegis-trust-node.cdx.json aegis-trust-python.cdx.json " ] || { echo "unexpected SBOM set: $got" >&2; exit 1; }
           ls -la sbom/
 
       # Sigstore cosign keyless signing — private repo でも動作 (OIDC + Rekor 公開 log)。
@@ -480,11 +522,23 @@ jobs:
   # Not yet:
   #   - Reproducible build verification
   #
-  pack-and-sign-sdk:
-    name: Pack + Cosign sign SDK artifacts (npm tarball + PyPI wheel/sdist)
+  # 2026-10-03 (#507 in the private tracker): the former single job
+  # `pack-and-sign-sdk` built AND signed while holding contents: write +
+  # id-token: write, so `npm ci` / `pip install` / the build backend ran with
+  # release-class credentials. It is now two jobs on the same runner labels:
+  #   - build-sdk (contents: read, no OIDC): installs and executes dependency
+  #     code (npm ci, tsc, hash-pinned build tools, python -m build) and hands
+  #     the artifacts over via upload-artifact.
+  #   - sign-sdk (contents: write + id-token: write): downloads them, signs
+  #     with cosign and attaches to the Release. Its only third-party code is
+  #     SHA-pinned actions (download-artifact, cosign-installer, gh-release).
+  build-sdk:
+    name: Build SDK artifacts (npm tarball + PyPI wheel/sdist) — read-only job
     needs: [resolve-release, sbom-node, sbom-python]
     if: (github.event_name == 'push' && needs.resolve-release.outputs.release_tag != '') || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }}
+    permissions:
+      contents: read    # dependency code runs here; nothing it does can write or sign
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -513,7 +567,7 @@ jobs:
           which python3
           python3 --version
 
-      - name: Install Python build tools (PEP 668 break-system-packages for Homebrew Python)
+      - name: Install Python build tools (hash-pinned; PEP 668 break-system-packages for Homebrew Python)
         # macOS Homebrew Python 3.11+ enforces PEP 668 (externally-managed-environment):
         # `pip install ...` directly into system site-packages → crash with
         # `error: externally-managed-environment`. The release-only context
@@ -522,7 +576,26 @@ jobs:
         # break-system-packages is simpler and well-scoped here.
         # Use `python3 -m pip` to bind to the python3 we just verified, not a
         # potentially-missing unversioned `pip` (Homebrew installs only `pip3`).
-        run: python3 -m pip install --no-cache-dir --break-system-packages build hatchling
+        #
+        # 2026-10-03: every build tool (build, hatchling and their transitive
+        # dependencies) is pinned by version AND sha256 in
+        # python/requirements-build.txt (pip-compile --generate-hashes); pip
+        # refuses anything that is not in that file or does not match a hash.
+        # Regenerate with `pip-compile --generate-hashes --allow-unsafe
+        # --output-file requirements-build.txt requirements-build.in` in python/.
+        # The tools go into a per-job venv under RUNNER_TEMP (outside the
+        # package dir, so the sdist cannot pick it up), not the host's global
+        # site-packages: `build --no-isolation` imports the backend from the
+        # environment it runs in, and hatchling loads plugins by entry point,
+        # so the environment must contain exactly the 8 pinned wheels and
+        # nothing a previous job left behind (audit F-04). No
+        # --break-system-packages any more.
+        working-directory: python
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/venv-build"
+          "$RUNNER_TEMP/venv-build/bin/python" -m pip install --no-cache-dir --require-hashes -r requirements-build.txt
+          "$RUNNER_TEMP/venv-build/bin/python" -m pip list --format=freeze
 
       - name: Build npm tarball
         working-directory: node
@@ -545,7 +618,11 @@ jobs:
           set -euo pipefail
           # python3 (versioned) to match the rest of the job — Homebrew Python
           # installs `python3` only, no unversioned `python` symlink.
-          python3 -m build
+          # --no-isolation: build in the venv where the build backend was
+          # installed hash-pinned above. The default isolated build env
+          # re-resolves `[build-system] requires` from pyproject.toml (unpinned
+          # `hatchling`) from the index — the exact fetch the pin exists to stop.
+          "$RUNNER_TEMP/venv-build/bin/python" -m build --no-isolation
           ls -la dist/
 
       - name: Collect SDK artifacts into single dir
@@ -556,6 +633,65 @@ jobs:
           cp python/dist/aegis_trust-*.whl sdk-artifacts/
           cp python/dist/aegis_trust-*.tar.gz sdk-artifacts/
           ls -la sdk-artifacts/
+
+      # Handoff to the signing job. The artifact store is the only thing this
+      # read-only job can write; the signing job verifies what it downloads by
+      # signing exactly those bytes (cosign verify-blob right after sign-blob).
+      - name: Upload unsigned SDK artifacts for the signing job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: sdk-artifacts-unsigned
+          path: sdk-artifacts/*
+          retention-days: 1
+          if-no-files-found: error
+
+  sign-sdk:
+    name: Cosign sign SDK artifacts + Release attach (no dependency code runs here)
+    needs: [resolve-release, build-sdk]
+    if: (github.event_name == 'push' && needs.resolve-release.outputs.release_tag != '') || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
+    runs-on: ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }}
+    permissions:
+      contents: write   # softprops/action-gh-release attaches the signed SDK artifacts
+      id-token: write   # cosign keyless (Sigstore Fulcio / Rekor)
+    steps:
+      # The self-hosted runner's workspace persists between jobs and runs, so a
+      # stale wheel or tarball left in `sdk-artifacts/` from an earlier run would
+      # otherwise be signed and attached alongside this run's files. Start from
+      # an empty directory, then accept exactly this run's three artifacts.
+      - name: Fresh signing workspace
+        run: |
+          set -euo pipefail
+          rm -rf sdk-artifacts
+          mkdir sdk-artifacts
+
+      - name: Download unsigned SDK artifacts from the build job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: sdk-artifacts-unsigned
+          path: sdk-artifacts
+
+      - name: Accept exactly this run's artifacts (one tgz, one wheel, one sdist of THIS version; nothing pre-signed)
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          ls -la sdk-artifacts/
+          count=$(find sdk-artifacts -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')
+          [ "$count" = "3" ] || { echo "expected exactly 3 files from build-sdk, found $count" >&2; exit 1; }
+          [ "$(find sdk-artifacts -maxdepth 1 -name 'aegis-trust-*.tgz' | wc -l | tr -d ' ')" = "1" ] || { echo "expected one npm tarball" >&2; exit 1; }
+          [ "$(find sdk-artifacts -maxdepth 1 -name 'aegis_trust-*.whl' | wc -l | tr -d ' ')" = "1" ] || { echo "expected one wheel" >&2; exit 1; }
+          [ "$(find sdk-artifacts -maxdepth 1 -name 'aegis_trust-*.tar.gz' | wc -l | tr -d ' ')" = "1" ] || { echo "expected one sdist" >&2; exit 1; }
+          if find sdk-artifacts -maxdepth 1 \( -name '*.sig' -o -name '*.pem' \) | grep -q .; then
+            echo "a signature or certificate arrived with the unsigned bundle — refusing to sign over it" >&2; exit 1
+          fi
+          # On a release run the three files must carry the version the tag
+          # names: the signed set is bound to what this release is (audit F-03).
+          if [ -n "$RELEASE_TAG" ]; then
+            V="${RELEASE_TAG#v}"
+            for f in "aegis-trust-$V.tgz" "aegis_trust-$V-py3-none-any.whl" "aegis_trust-$V.tar.gz"; do
+              [ -f "sdk-artifacts/$f" ] || { echo "release $RELEASE_TAG: expected sdk-artifacts/$f from build-sdk, not found" >&2; exit 1; }
+            done
+          fi
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
@@ -616,10 +752,11 @@ jobs:
       # against the self-hosted runner).
       #
       # Block C is therefore split across two jobs:
-      #   - pack-and-sign-sdk (this self-hosted job): build + cosign keyless
-      #     sign-blob + GitHub Release attach. Stays on the self-hosted runner
-      #     so cosign keyless OIDC identity does NOT depend on GitHub-hosted
-      #     infra (SAFETY INVARIANT #5 preserved).
+      #   - build-sdk (read-only, self-hosted) builds; sign-sdk (this
+      #     self-hosted job) does cosign keyless sign-blob + GitHub Release
+      #     attach. Both stay on the self-hosted runner so cosign keyless
+      #     OIDC identity does NOT depend on GitHub-hosted infra (SAFETY
+      #     INVARIANT #5 preserved).
       #   - publish-npm-trusted-publisher (github-hosted ubuntu-latest job
       #     below): npm publish --provenance via Trusted Publisher OIDC.
       #     Receives the already-cosign-signed .tgz via upload-artifact /
@@ -640,19 +777,20 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: pypi-dist-for-publish
+          # From the signed bundle, not python/dist: this job did not build.
           path: |
-            python/dist/*.whl
-            python/dist/*.tar.gz
+            sdk-artifacts/*.whl
+            sdk-artifacts/*.tar.gz
           retention-days: 1
           if-no-files-found: error
 
   # === Block C publish job (github-hosted) ============================================
   # Runs ONLY on a release run (pushed v* tag, or a version-bump merge to main
-  # that resolve-release tagged). Receives the cosign-signed .tgz from pack-and-sign-sdk
+  # that resolve-release tagged). Receives the cosign-signed .tgz from sign-sdk
   # via download-artifact, then publishes to npm with Trusted Publisher OIDC +
   # --provenance. github-hosted runner is mandatory here because npm registry
   # 422-rejects --provenance from self-hosted runners (see comment in
-  # pack-and-sign-sdk above).
+  # sign-sdk above).
   #
   # SAFETY INVARIANT #5 boundary: cosign keyless OIDC identity stays on
   # self-hosted (signing path). npm registry OIDC happens on github-hosted
@@ -671,7 +809,7 @@ jobs:
       group: aegis-trust-npm-upload
       cancel-in-progress: false
     if: needs.resolve-release.outputs.release_tag != ''
-    needs: [resolve-release, pack-and-sign-sdk]
+    needs: [resolve-release, sign-sdk]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -726,14 +864,12 @@ jobs:
             # read, the job stops (never guesses) and a re-run resumes it.
             VERSIONS_JSON="$(npm view aegis-trust versions --json)" || {
               echo "[npm] cannot read the registry's version list — refusing to guess the dist-tag (re-run when the registry answers)" >&2; exit 2; }
-            NEWEST="$(printf '%s' "$VERSIONS_JSON" | node -e '
-              const mine = process.argv[1];
-              const vs = JSON.parse(require("fs").readFileSync(0, "utf8"));
-              const stable = (Array.isArray(vs) ? vs : [vs]).concat([mine]).filter(v => /^\d+\.\d+\.\d+$/.test(v));
-              const key = v => v.split(".").map(Number);
-              stable.sort((a, b) => { const x = key(a), y = key(b); return (x[0] - y[0]) || (x[1] - y[1]) || (x[2] - y[2]); });
-              process.stdout.write(stable.pop() || mine);
-            ' "$VERSION")"
+            # jq + sort -V, not node: this job holds id-token: write, so it runs
+            # no interpreter that could load code (2026-10-03). Same result as
+            # before: the highest x.y.z among the registry's versions and ours.
+            NEWEST="$(printf '%s' "$VERSIONS_JSON" \
+              | jq -r --arg mine "$VERSION" '(if type == "array" then . else [.] end) + [$mine] | map(select(type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))) | .[]' \
+              | sort -V | tail -n 1)"
             [ -n "$NEWEST" ] || { echo "[npm] could not parse the registry's version list — refusing to guess the dist-tag" >&2; exit 2; }
             if [ "$NEWEST" != "$VERSION" ]; then
               DIST_TAG="previous"
@@ -788,7 +924,7 @@ jobs:
 
   # === PyPI Trusted Publisher publish job (github-hosted) =============================
   # Runs ONLY on a release run (pushed v* tag, or a version-bump merge to main
-  # that resolve-release tagged). Receives the built wheel + sdist from pack-and-sign-sdk
+  # that resolve-release tagged). Receives the built wheel + sdist from sign-sdk
   # via download-artifact, then publishes to PyPI with Trusted Publisher OIDC
   # (token-free — no API token, no ~/.pypirc). github-hosted runner is required for
   # the OIDC token exchange. PyPI Trusted Publishing works on private source repos
@@ -796,7 +932,7 @@ jobs:
   # publish itself; only PEP 740 attestations are deferred until public (below).
   #
   # SAFETY INVARIANT #5 boundary: cosign keyless signing stays on the self-hosted
-  # build job (pack-and-sign-sdk). PyPI registry OIDC happens on github-hosted
+  # signing job (sign-sdk, fed by build-sdk). PyPI registry OIDC happens on github-hosted
   # (token exchange only, audited via the PyPI Trusted Publisher binding tied to
   # this exact workflow file). No signing keys on github-hosted.
   #
@@ -810,7 +946,7 @@ jobs:
   publish-pypi-trusted-publisher:
     name: PyPI publish (Trusted Publisher OIDC, github-hosted)
     if: needs.resolve-release.outputs.release_tag != ''
-    needs: [resolve-release, pack-and-sign-sdk]
+    needs: [resolve-release, sign-sdk]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -53,7 +53,8 @@ merge-on-green.yml | merge        | ubuntu-latest | 判定と merge。CI と同�
 ! release-attestation.yml | sbom-node                        | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側
 ! release-attestation.yml | sbom-python                      | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側
 ! release-attestation.yml | collect-and-sign                 | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側
-! release-attestation.yml | pack-and-sign-sdk                | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側
+! release-attestation.yml | build-sdk                        | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名する job と同じ host で焼く (read だけ、鍵も OIDC も持たない — 2026-10-03 #507 で pack-and-sign-sdk を build / sign に分けた)
+! release-attestation.yml | sign-sdk                         | ${{ fromJSON(vars.RELEASE_RUNNER_LABELS) }} | 署名鍵が macOS 側 (build-sdk の artifact を受け取って署名・添付するだけ)
 ! release-attestation.yml | publish-npm-trusted-publisher    | ubuntu-latest | trusted publisher の OIDC 発行元を変えない
 ! release-attestation.yml | publish-pypi-trusted-publisher   | ubuntu-latest | trusted publisher の OIDC 発行元を変えない
 ! release-attestation.yml | notify-site-registry-sync        | ubuntu-latest | 出荷経路。公開 job と同じ workflow 内

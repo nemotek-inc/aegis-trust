@@ -1,0 +1,8 @@
+# Build tools for the release workflow's `build-sdk` job (2026-10-03).
+# Compiled to requirements-build.txt with hashes:
+#   pip-compile --generate-hashes --allow-unsafe --output-file requirements-build.txt requirements-build.in
+# The workflow installs ONLY from requirements-build.txt (`--require-hashes`) and
+# builds with `python -m build --no-isolation`, so pyproject.toml's unpinned
+# `[build-system] requires` is never resolved from the index at release time.
+build
+hatchling

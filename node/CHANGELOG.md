@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed — release workflow: dependency code no longer runs with release credentials
+- `release-attestation.yml` defaults to `permissions: contents: read`; write and OIDC
+  are granted only to the jobs that sign, attach to the Release or publish. The former
+  `pack-and-sign-sdk` job is split into `build-sdk` (read-only: `npm ci`, `tsc`,
+  `npm pack`) and `sign-sdk` (cosign + Release attach, fed by artifact handoff). The
+  SBOM generator is pinned to an exact version. No change to the published package;
+  the Python side of the same change is in `python/CHANGELOG.md`.
+
 ### Added — declared `action` on boundary decisions
 - `CheckBoundaryArgs.action` and `ToolCallArgs.action` (`"read"` or
   `"write"`): what the caller will do at `destination`. Sent verbatim as

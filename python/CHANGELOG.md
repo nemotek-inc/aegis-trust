@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Changed — release workflow: dependency code no longer runs with release credentials
+- `release-attestation.yml` defaults to `permissions: contents: read`; `contents: write`
+  and `id-token: write` are granted only to the jobs that sign, attach to the Release or
+  publish, and none of those jobs installs or executes dependencies. The former
+  `pack-and-sign-sdk` job is split into `build-sdk` (read-only: `npm ci`, `tsc`, the
+  Python build) and `sign-sdk` (cosign + Release attach, fed by artifact handoff).
+- The Python build tools are pinned by version and sha256 in `requirements-build.txt`
+  (`pip install --require-hashes`) and the wheel/sdist are built with
+  `python -m build --no-isolation`, so the unpinned `[build-system] requires` of
+  `pyproject.toml` is never resolved from the index at release time. The SBOM
+  generator is pinned to an exact version.
+- `python/tests/adversarial/test_redteam_S077_release_workflow_permissions.py` computes each
+  job's effective permissions from the YAML and keeps this boundary: a job that runs
+  dependency code holds no write permission; a job with write / OIDC runs none.
+  No change to the published package.
+
 ### Added — declared `action` on boundary decisions
 - `check_boundary` / `acheck_boundary` and `tool_call` / `atool_call` /
   `tool_allowed` / `atool_allowed` take `action=` (`"read"` or `"write"`): what
