@@ -343,7 +343,7 @@ jobs:
           echo "[sbom-node] generated $(wc -l < sbom/aegis-trust-node.cdx.json) lines"
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: sbom-node
           path: sbom/aegis-trust-node.cdx.json
@@ -401,7 +401,7 @@ jobs:
           echo "[sbom-python] generated $(wc -l < sbom/aegis-trust-python.cdx.json) lines"
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: sbom-python
           path: sbom/aegis-trust-python.cdx.json
@@ -485,7 +485,7 @@ jobs:
           ls -la sbom/
 
       - name: Upload signed SBOM bundle as artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: sbom-signed
           path: sbom/*
@@ -638,7 +638,7 @@ jobs:
       # read-only job can write; the signing job verifies what it downloads by
       # signing exactly those bytes (cosign verify-blob right after sign-blob).
       - name: Upload unsigned SDK artifacts for the signing job
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: sdk-artifacts-unsigned
           path: sdk-artifacts/*
@@ -723,7 +723,7 @@ jobs:
           ls -la sdk-artifacts/
 
       - name: Upload signed SDK artifact bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: sdk-artifacts-signed
           path: sdk-artifacts/*
@@ -765,7 +765,7 @@ jobs:
       #     self-hosted.
       - name: Upload .tgz for github-hosted publish job (Block C handoff)
         if: needs.resolve-release.outputs.release_tag != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: npm-tarball-for-publish
           path: sdk-artifacts/aegis-trust-*.tgz
@@ -774,7 +774,7 @@ jobs:
 
       - name: Upload python wheel + sdist for github-hosted PyPI publish (Trusted Publisher handoff)
         if: needs.resolve-release.outputs.release_tag != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: pypi-dist-for-publish
           # From the signed bundle, not python/dist: this job did not build.
