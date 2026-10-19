@@ -80,6 +80,10 @@ python-test / node-test jobs).
 | STRIDE | Threat | Mitigation | Test |
 |---|---|---|---|
 | Elevation of privilege / Information disclosure | tool calls crossing the proxy without purpose enforcement | proxy applies the same purpose/scope gate to MCP traffic | `python/tests/test_mcp_proxy.py` |
+| Information disclosure | excluded values reaching the host through a server→host line the filter does not parse (embedded resource, prefixed text, error data, server log, sampling request, a second reply with the same id, `_meta`, completions) | every server→host line is rebuilt from a projection; what the field rule cannot inspect is withheld by default; unknown lines and server requests other than `ping` / `roots/list` are dropped | `conformance/mcp_relay.v0.json` (both SDKs), `python/tests/test_mcp_proxy.py` |
+| Repudiation | an event saying `protected` for a result that was not inspected | `protected` only when every carrier was inspected; withheld carriers are named `<withheld:path>`; `--uninspected pass` names `<unfiltered:path>` and never writes `protected` | `conformance/mcp_relay.v0.json` |
+| Elevation of privilege | the host's model widening its own access by writing `arguments.purpose` | the purpose comes from the policy's `tools` map; a different declared purpose is refused unless the operator passes `--allow-declared-purpose` | `conformance/mcp_relay.v0.json` |
+| Information disclosure (named limit) | a server writing data values into its own interface metadata (tool descriptions, `instructions`), or signalling through numbers and timing | not closed: listings are narrowed to mapped tools and families and projected to spec keys; the limit is stated in `schemas/v0/mcp-hosts.md` and measured by a corpus case | `conformance/mcp_relay.v0.json` (`interface-metadata-named-limit`) |
 | Tampering | SQL injection via tool arguments | injection adversarial suite | `python/tests/adversarial/test_redteam_S018_sqli.py` |
 
 ### 2.4 `canonical.py` + `schemas/v0` (contract v0)

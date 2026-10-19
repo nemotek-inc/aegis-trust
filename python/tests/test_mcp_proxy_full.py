@@ -115,6 +115,7 @@ def _spawn(tmp_path: Path, gateway_url: str, gate: str, policy: dict | None = No
             "--",
             sys.executable,
             str(server_py),
+            str(tmp_path / "server_saw.jsonl"),
         ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -126,6 +127,7 @@ def _spawn(tmp_path: Path, gateway_url: str, gate: str, policy: dict | None = No
             AEGIS_TOKEN="test-token",
         ),
     )
+    proc.server_log = tmp_path / "server_saw.jsonl"  # type: ignore[attr-defined]
     return proc, audit_path
 
 
@@ -148,9 +150,12 @@ def _tool_call(proc, msg_id, name):
 
 
 def _seen_calls(proc):
-    return _rpc(
-        proc, {"jsonrpc": "2.0", "id": 99, "method": "tools/seen", "params": {}}
-    )["result"]["calls"]
+    # The fake server logs every line it receives. Once the ping reply is back,
+    # every earlier line has been logged. (A custom "tools/seen" method no longer
+    # works: the proxy withholds replies to methods it has no projection for.)
+    _rpc(proc, {"jsonrpc": "2.0", "id": 99, "method": "ping"})
+    seen = [json.loads(raw) for raw in proc.server_log.read_text().splitlines()]
+    return [m["params"]["name"] for m in seen if m.get("method") == "tools/call"]
 
 
 def test_check_access_gate_allows_then_filters(gateway, tmp_path):

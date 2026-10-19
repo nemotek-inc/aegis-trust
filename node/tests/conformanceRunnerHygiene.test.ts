@@ -144,6 +144,11 @@ function calledNames(src: ts.SourceFile): Set<string> {
       if (ts.isIdentifier(callee)) out.add(callee.text);
       else if (ts.isPropertyAccessExpression(callee)) out.add(callee.name.text);
     }
+    // `new ShieldProxy(...)` runs the shipped class's constructor: a call of the
+    // symbol as much as `f(...)` is (the mcp_relay runner reaches it this way).
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression)) {
+      out.add(node.expression.text);
+    }
     // `await import("x")` parses as a CallExpression with an ImportKeyword head.
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       out.add("import");

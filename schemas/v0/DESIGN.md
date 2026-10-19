@@ -137,9 +137,16 @@ raises `ProjectionError` (fail-closed skip-and-count, never guessed).
   (server→host). The host→server direction (tool arguments, sampling
   responses) is not yet inspected; `destinations` egress policy is enforced
   by the SDK/gateway forms in v0.
-- **free text**: only structured payloads are minimized (`structuredContent`
-  / JSON text in `content`/`contents`/`messages`). Route sensitive data
-  through structured results.
+- **uninspected output (proxy)**: only structured payloads can be minimized
+  (`structuredContent` / a text that is JSON as a whole / an embedded
+  resource's JSON text). Everything else the server sends on a gated call is
+  withheld by default; `--uninspected pass` relays it and the event names it
+  as unfiltered, never `protected` (`schemas/v0/mcp-hosts.md`). Route
+  sensitive data through structured results.
+- **interface metadata (proxy)**: tool / resource / prompt descriptions,
+  `serverInfo` and `instructions` are relayed as the server's description of
+  its own interface; a server that writes data values into them is not
+  minimized. Listings are narrowed to the tools and families the policy maps.
 - **operational decision verbs (gateway projection)**: `project_gateway_audit.py`
   maps monolith gateway records to canonical events only for `ALLOW`/`DENY`
   decisions (plane-NATIVE receipts map the full five-state vocabulary — see

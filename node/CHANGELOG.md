@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Changed (breaking) — MCP proxy: nothing the filter cannot inspect reaches the host by default
+- `aegis-mcp-proxy` now classifies every server→host line and rebuilds it from a
+  projection, the same rules as the Python proxy. Both run
+  `conformance/mcp_relay.v0.json` and must agree. What the field rule cannot inspect is
+  withheld (`--uninspected withhold`, the default) or relayed and named as unfiltered
+  (`--uninspected pass`). It is never recorded as `protected`.
+- Server requests other than `ping` and `roots/list` are refused (the server gets
+  -32601). `completion/complete` is gated. Task-augmented calls and `tasks/*` are
+  refused. A reply with an id that matches no outstanding request is dropped.
+- A declared `arguments.purpose` that differs from the tools map is refused unless
+  `--allow-declared-purpose` is passed.
+- `ShieldProxy` takes an options object (`{ uninspected, allowDeclaredPurpose }`), and
+  has `drainToServer()` for the lines the proxy owes the server. `EmitArgs.allowedFields`
+  is new. The full list of changes and the upgrade note are in `python/CHANGELOG.md`.
+
 ### Changed — release workflow: dependency code no longer runs with release credentials
 - `release-attestation.yml` defaults to `permissions: contents: read`; write and OIDC
   are granted only to the jobs that sign, attach to the Release or publish. The former
