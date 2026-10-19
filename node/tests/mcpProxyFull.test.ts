@@ -6,27 +6,29 @@
 
 import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const PROXY = new URL("../dist/mcpProxy.js", import.meta.url).pathname;
 
+// The fake server logs the tools it ran to argv[2]; the test reads that file
+// after the proxy exits. (A custom "tools/seen" method no longer works: the
+// proxy withholds replies to methods it has no projection for.)
 const FAKE_SERVER = `
+import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 const RECORD = { name: "ACME", company: "ACME Inc", email: "ceo@acme.test", ssn: "123-45-6789" };
-const seen = [];
+const log = process.argv[2];
 createInterface({ input: process.stdin }).on("line", (line) => {
   if (!line.trim()) return;
   const msg = JSON.parse(line);
   if (!("id" in msg)) return;
   let result;
   if (msg.method === "tools/call") {
-    seen.push(msg.params.name);
+    if (log) appendFileSync(log, msg.params.name + "\\n");
     result = { structuredContent: RECORD, content: [] };
-  } else if (msg.method === "tools/seen") {
-    result = { calls: seen };
   } else {
     result = { ok: true };
   }
@@ -45,7 +47,6 @@ const POLICY = {
     query_business_data: "customer_data",
     blocked_tool: "denied_purpose",
     other_tool: "customer_data",
-    "tools/seen": "customer_data",
   },
   defaults: { unknown_tool: "block" },
 };
@@ -93,9 +94,10 @@ function runProxy(
   requests: Array<Record<string, unknown>>,
   env: Record<string, string>,
   gate: string,
-): Promise<{ byId: Map<number, Record<string, unknown>>; events: Array<Record<string, unknown>> }> {
+): Promise<{ byId: Map<number, Record<string, unknown>>; events: Array<Record<string, unknown>>; seen: string[] }> {
   const dir = mkdtempSync(join(tmpdir(), "aegis-proxy-full-"));
   const serverPath = join(dir, "server.mjs");
+  const seenPath = join(dir, "seen.log");
   const policyPath = join(dir, "policy.json");
   const auditPath = join(dir, "events.jsonl");
   writeFileSync(serverPath, FAKE_SERVER);
@@ -104,7 +106,7 @@ function runProxy(
   const proc = spawn(
     process.execPath,
     [PROXY, "--policy", policyPath, "--agent-id", "full-gate-test", "--audit-path", auditPath,
-      "--gate", gate, "--", process.execPath, serverPath],
+      "--gate", gate, "--", process.execPath, serverPath, seenPath],
     { stdio: ["pipe", "pipe", "inherit"], env: { PATH: process.env.PATH ?? "", ...env } },
   );
 
@@ -128,16 +130,16 @@ function runProxy(
       } catch {
         events = [];
       }
-      resolve({ byId, events });
+      const seen = existsSync(seenPath)
+        ? readFileSync(seenPath, "utf8").split("\n").filter(Boolean)
+        : [];
+      resolve({ byId, events, seen });
     });
   });
 }
 
 const call = (id: number, name: string) => ({
   jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: {} },
-});
-const seenProbe = (id: number) => ({
-  jsonrpc: "2.0", id, method: "tools/seen", params: { name: "tools/seen" } ,
 });
 
 function resultOf(byId: Map<number, Record<string, unknown>>, id: number): Record<string, unknown> {
@@ -152,15 +154,14 @@ describe("FULL gate: check-access", () => {
       AEGIS_URL: `http://127.0.0.1:${gw.port}`,
       AEGIS_TOKEN: "t",
     };
-    const { byId, events } = await runProxy(
-      [call(1, "query_business_data"), call(2, "blocked_tool"), seenProbe(3)],
+    const { byId, events, seen } = await runProxy(
+      [call(1, "query_business_data"), call(2, "blocked_tool")],
       env, "check-access",
     );
     expect(resultOf(byId, 1).structuredContent).toEqual({ name: "ACME", company: "ACME Inc" });
     const denied = resultOf(byId, 2);
     expect(denied.isError).toBe(true);
     expect(JSON.stringify(denied)).toContain("gateway_denied");
-    const seen = (resultOf(byId, 3) as { calls: string[] }).calls;
     expect(seen).not.toContain("blocked_tool");
     expect(events.some((e) => e.reason_code === "gateway_denied")).toBe(true);
     // finding B: one scope per /check-access call
@@ -170,13 +171,13 @@ describe("FULL gate: check-access", () => {
 
   it("gateway outage is a deny (gateway_unavailable), never a pass-through", async () => {
     const env = { AEGIS_MODE: "full", AEGIS_URL: "http://127.0.0.1:1", AEGIS_TOKEN: "t" };
-    const { byId, events } = await runProxy(
-      [call(1, "query_business_data"), seenProbe(2)], env, "check-access",
+    const { byId, events, seen } = await runProxy(
+      [call(1, "query_business_data")], env, "check-access",
     );
     const denied = resultOf(byId, 1);
     expect(denied.isError).toBe(true);
     expect(JSON.stringify(denied)).toContain("gateway_unavailable");
-    expect((resultOf(byId, 2) as { calls: string[] }).calls).not.toContain("query_business_data");
+    expect(seen).not.toContain("query_business_data");
     expect(events.some((e) => e.reason_code === "gateway_unavailable")).toBe(true);
   });
 });
@@ -189,15 +190,15 @@ describe("FULL gate: tool-call (AI-native)", () => {
       AEGIS_URL: `http://127.0.0.1:${gw.port}`,
       AEGIS_TOKEN: "t",
     };
-    const { byId } = await runProxy(
-      [call(1, "query_business_data"), call(2, "other_tool"), seenProbe(3)],
+    const { byId, seen } = await runProxy(
+      [call(1, "query_business_data"), call(2, "other_tool")],
       env, "tool-call",
     );
     expect(resultOf(byId, 1).structuredContent).toEqual({ name: "ACME", company: "ACME Inc" });
     const denied = resultOf(byId, 2);
     expect(denied.isError).toBe(true);
     expect(JSON.stringify(denied)).toContain("gateway_denied");
-    expect((resultOf(byId, 3) as { calls: string[] }).calls).not.toContain("other_tool");
+    expect(seen).not.toContain("other_tool");
     const tc = gw.calls.filter((c) => c.path.endsWith("/tool-call"));
     expect(tc[0]?.body.tool).toBe("query_business_data");
     expect(tc[0]?.body.purpose).toBe("customer_data");

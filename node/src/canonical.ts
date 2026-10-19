@@ -377,6 +377,7 @@ export interface EmitArgs {
   eventType?: string;
   scope?: string[] | null;
   denyFields?: string[] | null;
+  allowedFields?: string[] | null;
   outcome?: string | null;
   reasonCode?: string | null;
   destination?: string | null;
@@ -427,6 +428,7 @@ export class CanonicalEmitter {
     const optional: Record<string, unknown> = {
       scope: a.scope,
       deny_fields: a.denyFields,
+      allowed_fields: a.allowedFields,
       outcome: a.outcome,
       reason_code: a.reasonCode,
       destination: a.destination,

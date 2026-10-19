@@ -121,6 +121,26 @@
           }
         }
       }
+    },
+    {
+      "corpus": "mcp_relay.v0.json",
+      "exercises": "the shipped MCP proxy's classification of every server->host line: what gets the field rule, what is withheld or named as unfiltered, which protocol values may pass, and the event each line leaves. Another enforcement point can run a pinned copy of the same file",
+      "runners": {
+        "python": {
+          "path": "python/tests/test_mcp_relay_corpus.py",
+          "must_import": {
+            "module": "aegis_trust.mcp_proxy",
+            "symbol": "ShieldProxy"
+          }
+        },
+        "node": {
+          "path": "node/tests/mcpRelayCorpus.test.ts",
+          "must_import": {
+            "module": "../src/mcpProxy.js",
+            "symbol": "ShieldProxy"
+          }
+        }
+      }
     }
   ],
   "forbidden_imports": {

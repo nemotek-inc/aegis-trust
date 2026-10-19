@@ -643,6 +643,27 @@ def _iter_preserving(v: Any) -> Any:
     return list(v)
 
 
+_HOLDS_RECORD_MAX_DEPTH = 64
+
+
+def _holds_record(v: Any, _depth: int = 0) -> bool:
+    """True when ``v`` is record-like, or a collection holding a record-like
+    element at ANY depth.
+
+    A bare leaf scope over ``[[{"ssn": ...}]]`` must drop the key exactly as
+    over ``[{"ssn": ...}]``: checking only the immediate elements let a record
+    nested one collection deeper pass through unfiltered and unreported.
+    Over-deep nesting answers True (fail-closed).
+    """
+    if _depth > _HOLDS_RECORD_MAX_DEPTH:
+        return True
+    if _is_record_like(v):
+        return True
+    if _is_traversable(v):
+        return any(_holds_record(x, _depth + 1) for x in _iter_preserving(v))
+    return False
+
+
 def _filter_dict(data: dict[str, Any], path_tree: dict[str, Any]) -> dict[str, Any]:
     """Keep only keys matching path_tree (minimum disclosure).
 
@@ -674,10 +695,7 @@ def _filter_dict(data: dict[str, Any], path_tree: dict[str, Any]) -> dict[str, A
             # also drops. See ``_is_record_like`` for the full taxonomy.
             # S022 R1/R11 covered the collection case; the bare-Mapping/record
             # case is the doctor-v0 trust-boundary hardening.
-            if _is_record_like(v) or (
-                _is_traversable(v)
-                and any(_is_record_like(x) for x in _iter_preserving(v))
-            ):
+            if _holds_record(v):
                 logger.warning(
                     "shield: scope_bare_field_over_record_collection — a bare "
                     "scope field matched a record-like value (a mapping/object) "

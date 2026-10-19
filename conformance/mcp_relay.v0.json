@@ -1,0 +1,3732 @@
+{
+ "$comment": "Cross-implementation MCP relay corpus . The Python and Node SDK proxies (python/tests/test_mcp_relay_corpus.py, node/tests/mcpRelayCorpus.test.ts) feed each case's lines, in order, to the shipped ShieldProxy (handle_client_line / handle_server_line / drain_to_server) and must produce the expected lines on each side and the expected events. Another enforcement point can run a copy pinned by sha256. Rules the expectations follow: no server line is relayed as the server wrote it; a gated result is rebuilt from a projection, where structuredContent, a text that is JSON as a whole and an embedded resource's text get the purpose's field rule and every other carrier is uninspected (withheld by default, relayed and named under uninspected=pass, never 'protected'); protocol values come from finite sets, are echoes of host values, or are proxy-owned handles; interface metadata of mapped tools and families is relayed (named limit). Matching: a string '$H:<name>' in an expected line matches a proxy-owned value starting with 'aegis-' and binds <name>; later uses (expected or in a host msg) mean that value. Two strings that both parse as JSON objects or arrays compare as parsed JSON. Events compare the listed keys; null means the key is absent. Every host-bound line is scanned for 'LEAK-': only the case's host_may_contain substrings may appear.",
+ "version": 0,
+ "policies": {
+  "p": {
+   "policy_schema_version": 0,
+   "policy_id": "mcp-relay-corpus",
+   "purposes": {
+    "lookup": {
+     "scope": [
+      "Id",
+      "Name"
+     ]
+    },
+    "full": {
+     "deny_fields": [
+      "Secret"
+     ]
+    }
+   },
+   "tools": {
+    "query": "lookup",
+    "query_full": "full",
+    "resources/read": "lookup",
+    "prompts/get": "lookup",
+    "completion/complete": "lookup"
+   },
+   "defaults": {
+    "unknown_tool": "block"
+   }
+  },
+  "tools_only": {
+   "policy_schema_version": 0,
+   "policy_id": "mcp-relay-corpus-tools-only",
+   "purposes": {
+    "lookup": {
+     "scope": [
+      "Id",
+      "Name"
+     ]
+    }
+   },
+   "tools": {
+    "query": "lookup"
+   },
+   "defaults": {
+    "unknown_tool": "block"
+   }
+  }
+ },
+ "cases": [
+  {
+   "id": "b5-structured-and-json-text",
+   "doc": "structuredContent and a text that is JSON as a whole both get the field rule (unchanged behaviour)",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       },
+       "content": [
+        {
+         "type": "text",
+         "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\", \"Email\": \"LEAK-email\", \"Secret\": \"LEAK-secret\"}"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        },
+        "content": [
+         {
+          "type": "text",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "b5-resource-item",
+   "doc": "an embedded resource's JSON text gets the field rule; its uri is uninspected and replaced",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "resource",
+         "resource": {
+          "uri": "sf://q/LEAK-uri",
+          "mimeType": "application/json",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\", \"Email\": \"LEAK-email\", \"Secret\": \"LEAK-secret\"}"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "resource",
+          "resource": {
+           "uri": "aegis:withheld",
+           "mimeType": "application/json",
+           "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+          }
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:content[0].resource.uri>",
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "b5-prefixed-text",
+   "doc": "a text with a prefix before the JSON is not JSON as a whole: withheld (was relayed with all values)",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "text",
+         "text": "Query returned 1 record:\n{\"Id\": \"003A\", \"Name\": \"Alpha\", \"Email\": \"LEAK-email\", \"Secret\": \"LEAK-secret\"}"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "[Aegis: withheld — content could not be checked against purpose 'lookup']"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:content[0].text>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "b5-error-data",
+   "doc": "a JSON-RPC error to a gated call: data gets the field rule, message is uninspected, an unknown code becomes -32603, and an event is written (there was none)",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+       "code": -32000,
+       "message": "query LEAK-msg failed",
+       "data": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "error": {
+        "code": -32603,
+        "message": "upstream error (withheld by Aegis)",
+        "data": {
+         "Id": "003A",
+         "Name": "Alpha"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:error.message>",
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "b5-notification-before-result",
+   "doc": "a server log sent before the result is not relayed; one event names it; the call's own event follows",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/message",
+      "params": {
+       "level": "info",
+       "data": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       }
+      }
+     },
+     "expect_host": [],
+     "expect_server": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "notifications/message",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "server_log_withheld",
+     "blocked_fields": [
+      "<withheld:notifications/message.params>"
+     ],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "b5-declared-purpose-refused",
+   "doc": "arguments.purpose naming a broader purpose than the tools map is refused and never forwarded",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {
+        "purpose": "full"
+       }
+      }
+     },
+     "expect_server": [],
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'query' blocked (declared_purpose_refused, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "full",
+     "operation": "query",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "declared_purpose_refused",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "declared-purpose-equal-is-forwarded",
+   "doc": "a declared purpose equal to the mapping is forwarded",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {
+        "purpose": "lookup"
+       }
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {
+         "purpose": "lookup"
+        }
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "declared-purpose-unmapped-tool",
+   "doc": "an unmapped tool cannot be reached by declaring a purpose",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "export_all",
+       "arguments": {
+        "purpose": "full"
+       }
+      }
+     },
+     "expect_server": [],
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'export_all' blocked (unknown_tool, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "full",
+     "operation": "export_all",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "unknown_tool",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "declared-purpose-opt-in",
+   "doc": "--allow-declared-purpose restores the earlier rule; the event says declared_purpose_override",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {
+        "purpose": "full"
+       }
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {
+         "purpose": "full"
+        }
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha",
+         "Email": "LEAK-email"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "full",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "declared_purpose_override",
+     "blocked_fields": [
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ],
+   "flags": {
+    "allow_declared_purpose": true
+   },
+   "host_may_contain": [
+    "LEAK-email"
+   ]
+  },
+  {
+   "id": "resource-item-text-not-json",
+   "doc": "an embedded resource whose text is not JSON becomes the notice",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "resource",
+         "resource": {
+          "uri": "sf://LEAK-u",
+          "mimeType": "text/plain",
+          "text": "LEAK-free"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "[Aegis: withheld — content could not be checked against purpose 'lookup']"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:content[0].resource.text>",
+      "<withheld:content[0].resource.uri>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "resource-item-blob",
+   "doc": "an embedded resource blob cannot be inspected: the item becomes the notice",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "resource",
+         "resource": {
+          "uri": "sf://LEAK-u",
+          "blob": "LEAK-blob"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "[Aegis: withheld — content could not be checked against purpose 'lookup']"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:content[0].resource.blob>",
+      "<withheld:content[0].resource.uri>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "image-item",
+   "doc": "image data cannot be inspected",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "image",
+         "data": "LEAK-img",
+         "mimeType": "image/png"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "[Aegis: withheld — content could not be checked against purpose 'lookup']"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:content[0]>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "resource-link-item",
+   "doc": "a resource_link carries server strings: withheld",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "resource_link",
+         "uri": "sf://LEAK-link",
+         "name": "LEAK-name"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "[Aegis: withheld — content could not be checked against purpose 'lookup']"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:content[0]>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "result-meta-and-exempt-keys",
+   "doc": "_meta, description, nextCursor and unknown keys of a gated result are uninspected (no key is exempt)",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       },
+       "_meta": {
+        "x": "LEAK-meta"
+       },
+       "description": "LEAK-desc",
+       "nextCursor": "LEAK-cur",
+       "extra": "LEAK-extra"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:_meta>",
+      "<withheld:description>",
+      "<withheld:extra>",
+      "<withheld:nextCursor>",
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "text-item-extra-keys",
+   "doc": "a text item's annotations, _meta and extra keys are uninspected",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "text",
+         "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\", \"Email\": \"LEAK-email\", \"Secret\": \"LEAK-secret\"}",
+         "annotations": {
+          "note": "LEAK-ann"
+         },
+         "_meta": {
+          "m": "LEAK-im"
+         },
+         "extra": "LEAK-x"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:content[0]._meta>",
+      "<withheld:content[0].annotations>",
+      "<withheld:content[0].extra>",
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "hosted-mcp-is-error-json-array",
+   "doc": "the real Hosted MCP error shape (isError + JSON-array text echoing the input) is JSON as a whole and gets the field rule",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "text",
+         "text": "[{\"message\": \"No such column 'LEAK-col'\", \"errorCode\": \"INVALID_FIELD\"}]"
+        }
+       ],
+       "isError": true
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "[{}]"
+         }
+        ],
+        "isError": true
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "errorCode",
+      "message"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "hosted-mcp-structured-with-meta",
+   "doc": "the real Hosted MCP success shape: structuredContent + JSON text + _meta",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       },
+       "content": [
+        {
+         "type": "text",
+         "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\", \"Email\": \"LEAK-email\", \"Secret\": \"LEAK-secret\"}"
+        }
+       ],
+       "isError": false,
+       "_meta": {
+        "m": "LEAK-hm"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        },
+        "content": [
+         {
+          "type": "text",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+         }
+        ],
+        "isError": false
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:_meta>",
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "structured-not-object",
+   "doc": "a structuredContent that is not an object or array is uninspected",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": "LEAK-sc"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {}
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:structuredContent>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "gated-resource-mimetype-hostile",
+   "doc": "a mimeType outside the fixed set carries a server string: dropped and named",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "resource",
+         "resource": {
+          "uri": "x",
+          "mimeType": "application/x-LEAK-mt",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\", \"Email\": \"LEAK-email\", \"Secret\": \"LEAK-secret\"}"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "resource",
+          "resource": {
+           "uri": "aegis:withheld",
+           "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+          }
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:content[0].resource.mimeType>",
+      "<withheld:content[0].resource.uri>",
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "protected-only-when-all-inspected",
+   "doc": "protected is written only when every carrier was inspected and nothing was removed",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha"
+       },
+       "content": [
+        {
+         "type": "text",
+         "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        },
+        "content": [
+         {
+          "type": "text",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "protected",
+     "reason_code": null,
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "pass-prefixed-text",
+   "doc": "--uninspected pass relays the text; the event omits outcome and names the carrier",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "text",
+         "text": "LEAK-free note"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "LEAK-free note"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": null,
+     "reason_code": "unfiltered_passthrough",
+     "blocked_fields": [],
+     "allowed_fields": [
+      "<unfiltered:content[0].text>"
+     ]
+    }
+   ],
+   "flags": {
+    "uninspected": "pass"
+   },
+   "host_may_contain": [
+    "LEAK-free"
+   ]
+  },
+  {
+   "id": "pass-meta-with-reduction",
+   "doc": "pass mode with fields also removed: access_reduced, reason unfiltered_passthrough, never protected",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       },
+       "_meta": {
+        "m": "LEAK-pm"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        },
+        "_meta": {
+         "m": "LEAK-pm"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "unfiltered_passthrough",
+     "blocked_fields": [
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": [
+      "<unfiltered:_meta>"
+     ]
+    }
+   ],
+   "flags": {
+    "uninspected": "pass"
+   },
+   "host_may_contain": [
+    "LEAK-pm"
+   ]
+  },
+  {
+   "id": "pass-log-notification",
+   "doc": "pass mode relays a server log and names it",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/message",
+      "params": {
+       "level": "warning",
+       "data": "LEAK-log"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "method": "notifications/message",
+       "params": {
+        "level": "warning",
+        "data": "LEAK-log"
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "notifications/message",
+     "decision": "allow",
+     "outcome": null,
+     "reason_code": "unfiltered_passthrough",
+     "blocked_fields": [],
+     "allowed_fields": [
+      "<unfiltered:notifications/message.params>"
+     ]
+    }
+   ],
+   "flags": {
+    "uninspected": "pass"
+   },
+   "host_may_contain": [
+    "LEAK-log"
+   ]
+  },
+  {
+   "id": "duplicate-reply-dropped",
+   "doc": "a second reply with a gated id is dropped (the first popped the pending entry)",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       }
+      }
+     },
+     "expect_host": [],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "unknown",
+     "operation": "<reply>",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "unmatched_response",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "unmatched-reply-dropped",
+   "doc": "a reply no host request asked for is dropped",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 99,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha",
+        "Email": "LEAK-email",
+        "Secret": "LEAK-secret"
+       }
+      }
+     },
+     "expect_host": [],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "<reply>",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "unmatched_response",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "sampling-refused",
+   "doc": "sampling/createMessage never reaches the host; the server is told -32601",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "sampling/createMessage",
+      "params": {
+       "messages": [
+        {
+         "role": "user",
+         "content": {
+          "type": "text",
+          "text": "LEAK-sample"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [],
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 7,
+       "error": {
+        "code": -32601,
+        "message": "Aegis: server-to-host request refused"
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "sampling/createMessage",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "server_request_refused",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "elicitation-refused",
+   "doc": "elicitation/create never reaches the host",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": "e1",
+      "method": "elicitation/create",
+      "params": {
+       "message": "LEAK-elicit"
+      }
+     },
+     "expect_host": [],
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": "e1",
+       "error": {
+        "code": -32601,
+        "message": "Aegis: server-to-host request refused"
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "elicitation/create",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "server_request_refused",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "server-ping-proxy-id",
+   "doc": "a server ping is relayed under a proxy id without params; the host's reply returns under the server's id",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": "LEAK-sid",
+      "method": "ping",
+      "params": {
+       "x": "LEAK-pp"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": "$H:p",
+       "method": "ping"
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": "$H:p",
+      "result": {}
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": "LEAK-sid",
+       "result": {}
+      }
+     ],
+     "expect_host": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "server-roots-list-and-cancel",
+   "doc": "roots/list is relayed under a proxy id; the server's cancel of it is translated, its reason dropped; a cancel naming nothing is dropped",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "roots/list"
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": "$H:r",
+       "method": "roots/list"
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/cancelled",
+      "params": {
+       "requestId": 5,
+       "reason": "LEAK-why"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "method": "notifications/cancelled",
+       "params": {
+        "requestId": "$H:r"
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/cancelled",
+      "params": {
+       "requestId": "LEAK-none"
+      }
+     },
+     "expect_host": [],
+     "expect_server": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "completion-unmapped",
+   "doc": "completion/complete is a gated data method: unmapped means blocked",
+   "policy": "tools_only",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "completion/complete",
+      "params": {
+       "ref": {
+        "type": "ref/prompt",
+        "name": "q"
+       },
+       "argument": {
+        "name": "a",
+        "value": "x"
+       }
+      }
+     },
+     "expect_server": [],
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'completion/complete:q' blocked (unknown_tool, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "completion/complete:q",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "unknown_tool",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "completion-values-withheld",
+   "doc": "completion values are uninspected; total and hasMore go with them",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "completion/complete",
+      "params": {
+       "ref": {
+        "type": "ref/prompt",
+        "name": "q"
+       },
+       "argument": {
+        "name": "a",
+        "value": "x"
+       }
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "completion/complete",
+       "params": {
+        "ref": {
+         "type": "ref/prompt",
+         "name": "q"
+        },
+        "argument": {
+         "name": "a",
+         "value": "x"
+        }
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "completion": {
+        "values": [
+         "LEAK-v1"
+        ],
+        "total": 1,
+        "hasMore": false
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "completion": {
+         "values": []
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "completion/complete:q",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:completion.hasMore>",
+      "<withheld:completion.total>",
+      "<withheld:completion.values>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "task-augmented-call-refused",
+   "doc": "a task-augmented tools/call would return its result out of band: refused",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {},
+       "task": {
+        "ttl": 1000
+       }
+      }
+     },
+     "expect_server": [],
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'query' blocked (task_augmented_refused, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "query",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "task_augmented_refused",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "tasks-method-refused",
+   "doc": "tasks/* from the host are refused",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tasks/result",
+      "params": {
+       "taskId": "t1"
+      }
+     },
+     "expect_server": [],
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'tasks/result' blocked (task_refused, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "tasks/result",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "task_refused",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "unknown-tool-blocked",
+   "doc": "an unmapped tool is blocked and never forwarded (unchanged)",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "exfiltrate",
+       "arguments": {}
+      }
+     },
+     "expect_server": [],
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'exfiltrate' blocked (unknown_tool, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "exfiltrate",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "unknown_tool",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "batch-rejected",
+   "doc": "a JSON-RPC batch from the host is rejected (unchanged)",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_server": [],
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": null,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: '<batch>' blocked (batch_rejected, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "<batch>",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "batch_rejected",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "unrecognized-method-reply",
+   "doc": "a reply to a method the proxy has no projection for is withheld; the host gets an error",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "custom/export",
+      "params": {}
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "custom/export",
+       "params": {}
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "rows": [
+        "LEAK-row"
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "error": {
+        "code": -32603,
+        "message": "Aegis: reply to an unrecognized method withheld"
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "custom/export",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "unrecognized_method_reply",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "initialize-projected",
+   "doc": "initialize keeps the protocol version, known capability flags, serverInfo strings and instructions; everything else is dropped",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": {
+       "protocolVersion": "2025-06-18",
+       "capabilities": {},
+       "clientInfo": {
+        "name": "h",
+        "version": "0"
+       }
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "initialize",
+       "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {
+         "name": "h",
+         "version": "0"
+        }
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "protocolVersion": "2025-06-18",
+       "capabilities": {
+        "tools": {
+         "listChanged": "LEAK-cap"
+        },
+        "logging": {},
+        "experimental": {
+         "x": "LEAK-exp"
+        },
+        "resources": {
+         "subscribe": true,
+         "x": "LEAK-rx"
+        }
+       },
+       "serverInfo": {
+        "name": "srv",
+        "version": "1",
+        "extra": "LEAK-si"
+       },
+       "instructions": "Use query.",
+       "extra": "LEAK-top"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {
+         "tools": {},
+         "logging": {},
+         "resources": {
+          "subscribe": true
+         }
+        },
+        "serverInfo": {
+         "name": "srv",
+         "version": "1"
+        },
+        "instructions": "Use query."
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "initialize-protocol-version-hostile",
+   "doc": "a protocolVersion outside the fixed set becomes an error to the host",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": {
+       "protocolVersion": "2025-06-18"
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "initialize",
+       "params": {
+        "protocolVersion": "2025-06-18"
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "protocolVersion": "LEAK-pv",
+       "capabilities": {},
+       "serverInfo": {
+        "name": "s",
+        "version": "1"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "error": {
+        "code": -32603,
+        "message": "Aegis: unsupported protocol version"
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "initialize",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "protocol_version_unsupported",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "ungated-error",
+   "doc": "an error to an ungated request keeps a fixed code; message is uninspected and data dropped",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list",
+      "params": {}
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/list",
+       "params": {}
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "error": {
+       "code": 77,
+       "message": "LEAK-m",
+       "data": "LEAK-d"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "error": {
+        "code": -32603,
+        "message": "upstream error (withheld by Aegis)"
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "tools-list-projected-and-cursor-handle",
+   "doc": "tools/list shows mapped tools only, spec keys only, hint booleans only; nextCursor becomes a proxy handle that round-trips; an unknown handle is refused",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list",
+      "params": {}
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/list",
+       "params": {}
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "tools": [
+        {
+         "name": "query",
+         "description": "Search records",
+         "inputSchema": {
+          "type": "object"
+         },
+         "annotations": {
+          "readOnlyHint": true,
+          "title": "LEAK-at"
+         },
+         "_meta": {
+          "m": "LEAK-tm"
+         },
+         "icons": [
+          "LEAK-ic"
+         ]
+        },
+        {
+         "name": "secret_tool",
+         "description": "LEAK-unmapped",
+         "inputSchema": {
+          "type": "object"
+         }
+        }
+       ],
+       "nextCursor": "LEAK-cursor",
+       "_meta": {
+        "m": "LEAK-lm"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "tools": [
+         {
+          "name": "query",
+          "description": "Search records",
+          "inputSchema": {
+           "type": "object"
+          },
+          "annotations": {
+           "readOnlyHint": true
+          }
+         }
+        ],
+        "nextCursor": "$H:c"
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tools/list",
+      "params": {
+       "cursor": "$H:c"
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 2,
+       "method": "tools/list",
+       "params": {
+        "cursor": "LEAK-cursor"
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "tools/list",
+      "params": {
+       "cursor": "made-up"
+      }
+     },
+     "expect_server": [],
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 3,
+       "error": {
+        "code": -32602,
+        "message": "Aegis: unknown cursor"
+       }
+      }
+     ]
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "interface-metadata-named-limit",
+   "doc": "the named limit: a mapped tool's description is interface metadata and is relayed; this case measures the limit",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list",
+      "params": {}
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/list",
+       "params": {}
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "tools": [
+        {
+         "name": "query",
+         "description": "LEAK-desc-meta",
+         "inputSchema": {
+          "type": "object"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "tools": [
+         {
+          "name": "query",
+          "description": "LEAK-desc-meta",
+          "inputSchema": {
+           "type": "object"
+          }
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [],
+   "host_may_contain": [
+    "LEAK-desc-meta"
+   ]
+  },
+  {
+   "id": "resources-list-family-unmapped",
+   "doc": "resources/list is empty when resources/read is not mapped",
+   "policy": "tools_only",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "resources/list",
+      "params": {}
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "resources/list",
+       "params": {}
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "resources": [
+        {
+         "uri": "sf://a",
+         "name": "LEAK-rn"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "resources": []
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "resources-list-projected",
+   "doc": "resources/list keeps spec keys; a mimeType outside the set is dropped",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "resources/list",
+      "params": {}
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "resources/list",
+       "params": {}
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "resources": [
+        {
+         "uri": "sf://a",
+         "name": "a",
+         "description": "An object",
+         "mimeType": "application/x-LEAK-mt",
+         "size": 5,
+         "_meta": {
+          "m": "LEAK-rm"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "resources": [
+         {
+          "uri": "sf://a",
+          "name": "a",
+          "description": "An object"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "resources-read-contents",
+   "doc": "resources/read contents: text through the field rule; the asked URI is kept; another URI is replaced",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "resources/read",
+      "params": {
+       "uri": "sf://a"
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "resources/read",
+       "params": {
+        "uri": "sf://a"
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "contents": [
+        {
+         "uri": "sf://a",
+         "mimeType": "application/json",
+         "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\", \"Email\": \"LEAK-email\", \"Secret\": \"LEAK-secret\"}"
+        },
+        {
+         "uri": "sf://LEAK-other",
+         "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\", \"Email\": \"LEAK-email\", \"Secret\": \"LEAK-secret\"}"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "contents": [
+         {
+          "uri": "sf://a",
+          "mimeType": "application/json",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+         },
+         {
+          "uri": "sf://a",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "resources/read:sf://a",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:contents[1].uri>",
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "prompts-get-projected",
+   "doc": "prompts/get: description uninspected, an unknown role drops the message, free text becomes the notice",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "prompts/get",
+      "params": {
+       "name": "q"
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "prompts/get",
+       "params": {
+        "name": "q"
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "description": "LEAK-pd",
+       "messages": [
+        {
+         "role": "user",
+         "content": {
+          "type": "text",
+          "text": "LEAK-pt"
+         }
+        },
+        {
+         "role": "LEAK-role",
+         "content": {
+          "type": "text",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "messages": [
+         {
+          "role": "user",
+          "content": {
+           "type": "text",
+           "text": "[Aegis: withheld — content could not be checked against purpose 'lookup']"
+          }
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "prompts/get:q",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:description>",
+      "<withheld:messages[0].content.text>",
+      "<withheld:messages[1]>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "empty-result-methods",
+   "doc": "ping / subscribe replies are relayed as an empty result",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "ping"
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "ping"
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "x": "LEAK-pr"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {}
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "progress-projected",
+   "doc": "progress: only a token the host sent; numbers kept; message uninspected; unknown token dropped",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {},
+       "_meta": {
+        "progressToken": "tok1"
+       }
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {},
+        "_meta": {
+         "progressToken": "tok1"
+        }
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/progress",
+      "params": {
+       "progressToken": "tok1",
+       "progress": 1,
+       "total": 2,
+       "message": "LEAK-pm",
+       "x": "LEAK-px"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "method": "notifications/progress",
+       "params": {
+        "progressToken": "tok1",
+        "progress": 1,
+        "total": 2
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/progress",
+      "params": {
+       "progressToken": "LEAK-tok",
+       "progress": 1
+      }
+     },
+     "expect_host": [],
+     "expect_server": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "list-changed-no-params",
+   "doc": "list_changed is relayed with no params",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/tools/list_changed",
+      "params": {
+       "x": "LEAK-lc"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "method": "notifications/tools/list_changed"
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "resources-updated-subscribed-only",
+   "doc": "resources/updated is relayed only for a URI the host subscribed to",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/resources/updated",
+      "params": {
+       "uri": "sf://LEAK-unsub"
+      }
+     },
+     "expect_host": [],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "resources/subscribe",
+      "params": {
+       "uri": "sf://a"
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "resources/subscribe",
+       "params": {
+        "uri": "sf://a"
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {}
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {}
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/resources/updated",
+      "params": {
+       "uri": "sf://a",
+       "x": "LEAK-ru"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "method": "notifications/resources/updated",
+       "params": {
+        "uri": "sf://a"
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": []
+  },
+  {
+   "id": "unknown-notification-dropped",
+   "doc": "a notification the proxy does not recognise is dropped",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/custom",
+      "params": {
+       "x": "LEAK-cn"
+      }
+     },
+     "expect_host": [],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "notifications/custom",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "server_notification_dropped",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "hostile-json-types",
+   "doc": "a server value of an unexpected JSON type (array, object) where a protocol value belongs is treated as outside the set, never looked up as is",
+   "policy": "p",
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "content": [
+        {
+         "type": "resource",
+         "resource": {
+          "uri": "x",
+          "mimeType": [
+           "LEAK-arr"
+          ],
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\", \"Email\": \"LEAK-email\", \"Secret\": \"LEAK-secret\"}"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "resource",
+          "resource": {
+           "uri": "aegis:withheld",
+           "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+          }
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 2,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {}
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "error": {
+       "code": {
+        "c": "LEAK-code"
+       },
+       "message": "m"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 2,
+       "error": {
+        "code": -32603,
+        "message": "upstream error (withheld by Aegis)"
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "initialize",
+      "params": {
+       "protocolVersion": "2025-06-18"
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 3,
+       "method": "initialize",
+       "params": {
+        "protocolVersion": "2025-06-18"
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+       "protocolVersion": [
+        "2025-06-18"
+       ],
+       "capabilities": {},
+       "serverInfo": {
+        "name": "s",
+        "version": "1"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 3,
+       "error": {
+        "code": -32603,
+        "message": "Aegis: unsupported protocol version"
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "prompts/get",
+      "params": {
+       "name": "q"
+      }
+     },
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 4,
+       "method": "prompts/get",
+       "params": {
+        "name": "q"
+       }
+      }
+     ],
+     "expect_host": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": {
+       "messages": [
+        {
+         "role": {
+          "r": "LEAK-role"
+         },
+         "content": {
+          "type": "text",
+          "text": "{\"Id\": \"003A\", \"Name\": \"Alpha\"}"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 4,
+       "result": {
+        "messages": []
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:content[0].resource.mimeType>",
+      "<withheld:content[0].resource.uri>",
+      "Email",
+      "Secret"
+     ],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:error.message>"
+     ],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "unknown",
+     "operation": "initialize",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "protocol_version_unsupported",
+     "blocked_fields": [],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "lookup",
+     "operation": "prompts/get:q",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "minimum_disclosure",
+     "blocked_fields": [
+      "<withheld:messages[0]>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  }
+ ]
+}

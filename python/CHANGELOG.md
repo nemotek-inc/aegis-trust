@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+### Changed (breaking) — MCP proxy: nothing the filter cannot inspect reaches the host by default
+- Every server→host line is now classified and rebuilt from a projection fixed for its
+  kind; no line is relayed as the server wrote it. Before this change, excluded values
+  reached the host on several result paths while the event said `protected` or was
+  missing: an embedded `resource` item, a text with a prefix before its JSON, the `data`
+  of a JSON-RPC error, a server log sent before the result, a second reply carrying the
+  same id, `_meta`, and the results of `completion/complete`.
+- A gated result keeps only what the purpose's field rule inspected
+  (`structuredContent`, a text that is JSON as a whole, an embedded resource's JSON
+  text). Everything else is *uninspected*. `--uninspected withhold` (the default)
+  replaces an uninspected text with a fixed notice and removes the rest, and the event
+  says `access_reduced` with a `<withheld:path>` marker per carrier.
+  `--uninspected pass` relays them, and the event then carries
+  `reason_code: unfiltered_passthrough` and `<unfiltered:path>` in `allowed_fields`.
+  `protected` now means every carrier was inspected and nothing was removed.
+- An error reply to a gated call writes an event. Its `data` gets the field rule, its
+  message is uninspected, and a non-standard error code becomes -32603.
+- Server requests other than `ping` and `roots/list` are refused: the server gets
+  -32601 and the host sees nothing. This covers `sampling/createMessage` and
+  `elicitation/create`. Server notifications other than cancel, progress, `list_changed`,
+  resources-updated and logs are dropped.
+- `completion/complete` is a gated data method (map it in the policy's `tools` map or
+  it is blocked). Task-augmented calls and `tasks/*` are refused.
+- Listings show only the tools and families the policy maps, with spec keys only.
+  Cursors and the ids of server requests become proxy handles.
+- The call's purpose comes from the policy's `tools` map. A declared
+  `arguments.purpose` that differs from the mapping is refused
+  (`declared_purpose_refused`), because in the proxy the host's model writes that
+  argument. `--allow-declared-purpose` restores the earlier rule, and events then say
+  `declared_purpose_override`.
+- Named limits: interface metadata (descriptions, `serverInfo`, `instructions`) is
+  relayed, and numbers or timing a server chooses are not closed as channels
+  (`schemas/v0/mcp-hosts.md`).
+- `conformance/mcp_relay.v0.json` holds the rules as cases. The Python and Node proxies
+  run it and must agree.
+- Upgrade note: tools whose useful output is free text now return the notice unless
+  `--uninspected pass` is set. Tools reached only through a declared purpose need an
+  entry in the policy's `tools` map.
+
+### Fixed — a bare scope leaf over a record nested in collections is dropped
+- `wrap()` / `@shield` (both SDKs) dropped a bare scope leaf whose value was a record, or a
+  collection whose immediate elements were records. A record one collection deeper was
+  kept unfiltered and unreported: for example, `scope=["name"]` over
+  `{"name": [["a", {"secret": ...}]]}`. The check now looks at any depth, and nesting
+  deeper than 64 levels is treated as a record (fail-closed).
+- `conformance/filter_parity.v0.json` has two new cases, at two and three levels of
+  nesting.
+
 ### Changed — release workflow: dependency code no longer runs with release credentials
 - `release-attestation.yml` defaults to `permissions: contents: read`; `contents: write`
   and `id-token: write` are granted only to the jobs that sign, attach to the Release or
