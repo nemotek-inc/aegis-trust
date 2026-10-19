@@ -1,4 +1,4 @@
-# Gitleaks allowlist for canonical aegis-trust monorepo.
+# Gitleaks config for canonical aegis-trust monorepo.
 #
 # Authored: 2026-05-21 (task/T-S179-rc4-rc5-reconciliation, T-006c-1 Tier 0)
 # Rationale: documented false-positive allowlist for Red Team test fixtures
@@ -8,6 +8,16 @@
 #
 # Maintenance: only add allowlist entries for verified false positives
 # (real secrets must be revoked + scrubbed from history, never allowlisted).
+
+# Load gitleaks' built-in rules. gitleaks v8 builds its rule set from the
+# config it is given: a config that holds only an [allowlist] (no
+# `useDefault = true`, no [[rules]]) loads ZERO rules, so every scan passes and
+# nothing is ever detected. This file was exactly that until 2026-10-19.
+# The CI `gitleaks` job proves the rules are loaded (a synthetic token piped
+# through this config must be found) before it scans history, and
+# python/tests/test_gitleaks_config_has_rules.py asserts this table is here.
+[extend]
+useDefault = true
 
 [allowlist]
 description = "Verified false positives (Red Team test fixtures + similar)"
@@ -22,6 +32,19 @@ regexes = [
     '''sk-abc123xyz789''',
 ]
 
+# Leak-test fixtures (S018 origin), found once the default rules were switched
+# on: a full-history scan reported exactly 4 `stripe-access-token` hits, all in
+# these two files, all verified false positives. Each is a synthetic
+# `sk_live_*` shape spelled in capitals (HISTORYSECRET / DISKSECRET /
+# TRACEIDSECRET) that was never any account's key: the tests plant it in a
+# history path, an OSError message or a trace_id, then assert it is ABSENT
+# from the log output — so the literal must remain in source.
+#   - test_history_write_failure_S018.py: history-write failure diagnostics
+#     must not surface the database path or the exception text.
+#   - test_conversion_diagnostic_S018.py: the conversion-failure diagnostic
+#     must not surface the trace_id.
 paths = [
     '''(.*/)?tests/adversarial/test_redteam_S018_exception_leak\.py$''',
+    '''(.*/)?tests/test_history_write_failure_S018\.py$''',
+    '''(.*/)?tests/test_conversion_diagnostic_S018\.py$''',
 ]

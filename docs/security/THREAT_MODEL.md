@@ -102,7 +102,7 @@ python-test / node-test jobs).
 | Elevation of privilege | fork-PR token theft (`pull_request_target`), OIDC abuse, secret exfiltration from CI | read-only CI: no `pull_request_target`, no `id-token: write`, no secrets, SHA-pinned actions | `python/tests/adversarial/test_redteam_S018_ci_attack.py` (ci.yml), `python/tests/adversarial/test_redteam_S002_audit_workflow.py` (audit.yml) |
 | Tampering | malicious/vulnerable dependency enters either package | lockfiles + fail-closed `pip-audit --strict` / `npm audit --audit-level=low` on push/PR + weekly (`.github/workflows/audit.yml`) | `SECURITY_ASSESSMENT.md` §1–2 (evidence-linked) |
 | Tampering | dependency confusion / typosquat in install scripts | `npm ci` (lockfile-exact) and `uv sync` (uv.lock-exact) in CI; lockfile/pyproject integrity covered by the S018 supply-chain suite (`uv.lock` + `pyproject.toml` scope), audit-command integrity by the S002 suite | `python/tests/adversarial/test_redteam_S018_supply_chain.py`, `python/tests/adversarial/test_redteam_S002_audit_workflow.py` |
-| Information disclosure | committed secrets in history | gitleaks over full history in CI + S002 full-history scan (131 commits, 0 leaks) | ci.yml `gitleaks` job; `evidence/s002-gitleaks.log` |
+| Information disclosure | committed secrets in history | gitleaks over full history in CI with the default rules (since 2026-10-19), after a positive control proves the same binary + config detects a synthetic token; the earlier S002 scan ran with a rule-less config and is not evidence (`SECURITY_ASSESSMENT.md` §1 correction) | ci.yml `gitleaks` job; `python/tests/test_gitleaks_config_has_rules.py` |
 
 ## 3. Assurance claims vs non-claims (README alignment)
 

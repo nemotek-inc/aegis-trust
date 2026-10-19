@@ -29,6 +29,17 @@ Raw logs: [`evidence/s002-pip-audit-before.log`](evidence/s002-pip-audit-before.
 [`evidence/s002-npm-audit-after.log`](evidence/s002-npm-audit-after.log),
 [`evidence/s002-gitleaks.log`](evidence/s002-gitleaks.log).
 
+> **Correction (2026-10-19) — the secrets row above is not evidence.** At the time of
+> this scan `.gitleaks.toml` held only an `[allowlist]` (no `[extend] useDefault = true`,
+> no `[[rules]]`), and gitleaks with such a config loads **no rule**: "0 leaks" meant
+> nothing was looked for. Measured on 2026-10-19 with the same gitleaks 8.30.1: the old
+> config reports a synthetic GitHub token shape as clean; with the default rules the
+> full history (291 commits) has 4 findings, all synthetic leak-test fixtures (now
+> allow-listed by path), and no real secret. The config now extends the default rules,
+> and the CI `gitleaks` job first proves the scanner detects a synthetic token through
+> the same binary and config before it scans the history. The row is kept as recorded;
+> it must not be cited as a secrets result.
+
 ## 2. Findings and dispositions
 
 | ID | Severity | Component | Finding | Disposition |
@@ -64,7 +75,9 @@ OWASP Top 10 + STRIDE coverage audit of v0.4–v0.6.4… CRITICAL=0, HIGH=0")
 was a manual code-review pass. This S002 pass adds:
 
 1. machine-verified dependency layer (pip-audit/npm audit, before/after logs);
-2. machine-verified secrets layer over full history (gitleaks, 131 commits);
+2. machine-verified secrets layer over full history (gitleaks, 131 commits) —
+   corrected 2026-10-19: the config loaded no rule, so this layer verified
+   nothing until the fix described under §1;
 3. restoration of the CI dependency-audit control lost since the M4-era
    workflow, now mechanically protected against regression (S002-CI-2);
 4. this committed, evidence-linked assessment format itself.
@@ -97,6 +110,9 @@ Raw logs: [`evidence/s1005-pip-audit-before.log`](evidence/s1005-pip-audit-befor
 [`evidence/s1005-pip-audit-after.log`](evidence/s1005-pip-audit-after.log),
 [`evidence/s1005-npm-audit.log`](evidence/s1005-npm-audit.log),
 [`evidence/s1005-gitleaks.log`](evidence/s1005-gitleaks.log).
+
+> **Correction (2026-10-19):** the secrets row of this re-scan ran with the same
+> rule-less config as §1 and is not evidence either — see the correction under §1.
 
 ### 6.2 New finding this pass
 

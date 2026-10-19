@@ -15,8 +15,10 @@
  * to be regenerated from a clean root by a binary that emits a neutral
  * fingerprint (Core added AEGIS_ATTEST_HOST_FINGERPRINT_FOR_TEST for this).
  *
- * Nothing caught it. `.gitleaks.toml` here is allowlist-only — it declares zero
- * rules, so it matches nothing. It was found by hand, once, because the
+ * Nothing caught it. `.gitleaks.toml` here was allowlist-only at the time — it
+ * declared zero rules, so it matched nothing (it now loads the default rules,
+ * see python/tests/test_gitleaks_config_has_rules.py; those rules still do not
+ * know what a host fingerprint is). It was found by hand, once, because the
  * visibility of the repository happened to be checked before a push. That is
  * not a control.
  *

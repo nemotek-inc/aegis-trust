@@ -239,6 +239,34 @@ jobs:
           sudo mv gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
+      # Positive control: prove the scanner detects before trusting a clean
+      # scan. A config that loads no rule (an [allowlist] with neither
+      # `[extend] useDefault = true` nor any [[rules]]) passes every history
+      # it is shown — this repo's config was exactly that. So the SAME binary
+      # and the SAME config must find a GitHub-token shape first, or the job
+      # stops here, before the history scan.
+      # - The token is generated at run time from /dev/urandom and exists only
+      #   in the pipe: never written to a file, never printed (--redact).
+      # - gitleaks also exits 1 on a crash or a config error, so a finding is
+      #   asked to exit with a distinct status (42) and only that is accepted.
+      - name: gitleaks positive control (the config must detect)
+        run: |
+          alnum="$(head -c 4096 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9')"
+          if [ "${#alnum}" -lt 36 ]; then
+            echo "::error::could not generate the synthetic token" >&2
+            exit 1
+          fi
+          rc=0
+          printf 'ghp_%s\n' "${alnum:0:36}" \
+            | gitleaks stdin --config .gitleaks.toml --redact --no-banner --exit-code 42 \
+            || rc=$?
+          unset alnum
+          if [ "$rc" -ne 42 ]; then
+            echo "::error::gitleaks with .gitleaks.toml did not detect a synthetic GitHub token (exit ${rc}, expected 42). A config that loads no rule passes every scan, so the history scan is not run." >&2
+            exit 1
+          fi
+          echo "OK: .gitleaks.toml detects a synthetic GitHub token; the history scan below can find something."
+
       - name: gitleaks scan
         run: gitleaks detect --redact --no-banner --config .gitleaks.toml
 
