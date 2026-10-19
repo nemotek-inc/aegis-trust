@@ -124,6 +124,20 @@ export function toFilterable(data: unknown): unknown {
 
 // ── Scope filter (allow-list) ─────────────────────────────
 
+const HOLDS_RECORD_MAX_DEPTH = 64;
+
+// True when `v` is record-like (or a Map), or a collection holding one at ANY
+// depth. A bare leaf over `[[{ ssn }]]` must drop the key exactly as over
+// `[{ ssn }]`: checking only the immediate elements let a record nested one
+// collection deeper through. Over-deep nesting answers true (fail-closed).
+// Parity with python `_holds_record`.
+export function holdsRecord(v: unknown, depth = 0): boolean {
+  if (depth > HOLDS_RECORD_MAX_DEPTH) return true;
+  if (isRecordLike(v) || v instanceof Map) return true;
+  if (isTraversable(v)) return materialize(v).some((x) => holdsRecord(x, depth + 1));
+  return false;
+}
+
 export function filterDict(
   data: Record<string, unknown>,
   pathTree: PathTree,
@@ -150,11 +164,7 @@ export function filterDict(
       // doctor→shield fail-open class; parity with Python where a Mapping is
       // record-like). Minimum disclosure requires the explicit
       // `'<field>.<subfield>'` form.
-      if (
-        isRecordLike(v)
-        || v instanceof Map
-        || (isTraversable(v) && materialize(v).some(isRecordLike))
-      ) {
+      if (holdsRecord(v)) {
         warn(
           `shield: scope=['${k}'] over a record-like value (or a collection of `
             + `record-like elements) drops the key (fail-closed). Use `

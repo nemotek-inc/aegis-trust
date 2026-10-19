@@ -17,6 +17,12 @@
   has `drainToServer()` for the lines the proxy owes the server. `EmitArgs.allowedFields`
   is new. The full list of changes and the upgrade note are in `python/CHANGELOG.md`.
 
+### Fixed — a bare scope leaf over a record nested in collections is dropped
+- `wrap()` / `shield()` now drop a bare scope leaf whose value holds a record at any depth.
+  Before, `scope: ["name"]` over `{ name: [["a", { secret }]] }` kept the nested record.
+  This is parity with the Python fix. `holdsRecord` is exported, and
+  `conformance/filter_parity.v0.json` has two new cases.
+
 ### Changed — release workflow: dependency code no longer runs with release credentials
 - `release-attestation.yml` defaults to `permissions: contents: read`; write and OIDC
   are granted only to the jobs that sign, attach to the Release or publish. The former

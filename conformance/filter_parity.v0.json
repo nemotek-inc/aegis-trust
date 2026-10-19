@@ -127,6 +127,24 @@
       "input": {"__proto__": "x", "name": "a"},
       "expected_data": {"name": "a"},
       "expected_filtered_keys": ["__proto__"]
+    },
+    {
+      "id": "scope-bare-leaf-over-nested-collection-of-records-drops",
+      "doc": "a bare leaf over a record nested one collection deeper ([[{...}]]) drops the key, as over [{...}]: checking only the immediate elements let the nested record through unfiltered and unreported",
+      "purpose": "p",
+      "scope": ["name", "tags"],
+      "input": {"name": [["a", {"secret": "LEAK-nested"}]], "tags": [["x", "y"], ["z"]]},
+      "expected_data": {"tags": [["x", "y"], ["z"]]},
+      "expected_filtered_keys": ["name"]
+    },
+    {
+      "id": "scope-bare-leaf-over-deep-collection-of-records-drops",
+      "doc": "the same at three levels: the depth of the nesting does not matter",
+      "purpose": "p",
+      "scope": ["rows"],
+      "input": {"rows": [[[{"ssn": "LEAK-deep"}]]], "other": 1},
+      "expected_data": {},
+      "expected_filtered_keys": ["other", "rows"]
     }
   ]
 }

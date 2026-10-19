@@ -41,6 +41,15 @@
   `--uninspected pass` is set. Tools reached only through a declared purpose need an
   entry in the policy's `tools` map.
 
+### Fixed — a bare scope leaf over a record nested in collections is dropped
+- `wrap()` / `@shield` (both SDKs) dropped a bare scope leaf whose value was a record, or a
+  collection whose immediate elements were records. A record one collection deeper was
+  kept unfiltered and unreported: for example, `scope=["name"]` over
+  `{"name": [["a", {"secret": ...}]]}`. The check now looks at any depth, and nesting
+  deeper than 64 levels is treated as a record (fail-closed).
+- `conformance/filter_parity.v0.json` has two new cases, at two and three levels of
+  nesting.
+
 ### Changed — release workflow: dependency code no longer runs with release credentials
 - `release-attestation.yml` defaults to `permissions: contents: read`; `contents: write`
   and `id-token: write` are granted only to the jobs that sign, attach to the Release or
