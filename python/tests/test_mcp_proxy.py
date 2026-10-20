@@ -93,15 +93,32 @@ POLICY = {
     "defaults": {"unknown_tool": "block"},
 }
 SECRETS = ("ceo@acme.test", "123-45-6789")
+#: Every tool the fake server answers, read-only, with the arguments the tests send.
+TOOL_RULES = {
+    tool: {"access": "read", "arguments": {"allow": ["purpose", "q"]}}
+    for tool in (
+        "query_business_data",
+        "query_resource",
+        "query_error",
+        "query_with_sampling",
+    )
+}
 
 
-def _start(tmp_path: Path, *extra: str) -> tuple[subprocess.Popen, Path, Path]:
+def _start(
+    tmp_path: Path, *extra: str, rules: dict | None = TOOL_RULES
+) -> tuple[subprocess.Popen, Path, Path]:
     server_py = tmp_path / "fake_server.py"
     server_py.write_text(FAKE_SERVER)
     policy_path = tmp_path / "policy.json"
     policy_path.write_text(json.dumps(POLICY))
     audit_path = tmp_path / "events.jsonl"
     server_log = tmp_path / "server_saw.jsonl"
+    rule_args: list[str] = []
+    if rules is not None:
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_text(json.dumps(rules))
+        rule_args = ["--tool-rules", str(rules_path)]
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -113,6 +130,7 @@ def _start(tmp_path: Path, *extra: str) -> tuple[subprocess.Popen, Path, Path]:
             "claude-code-test",
             "--audit-path",
             str(audit_path),
+            *rule_args,
             *extra,
             "--",
             sys.executable,
@@ -155,7 +173,10 @@ def call(
     )
 
 
-def _events(audit_path: Path) -> list[dict]:
+def _events(audit_path: Path, interface: bool = False) -> list[dict]:
+    """The proxy's events, schema-validated. ``initialize`` without a pin file
+    also writes an ``interface_unapproved`` event (S109); the call-level tests
+    leave those out unless they ask for them."""
     lines = [json.loads(raw) for raw in audit_path.read_text().splitlines()]
     jsonschema = pytest.importorskip("jsonschema")
     schema = json.loads((SCHEMA_DIR / "aegis-audit-event.v0.schema.json").read_text())
@@ -163,7 +184,16 @@ def _events(audit_path: Path) -> list[dict]:
     for event in lines:
         validator.validate(event)
         assert not any(s in json.dumps(event) for s in SECRETS)  # names only
-    return lines
+    if interface:
+        return lines
+    listings = (
+        "initialize",
+        "tools/list",
+        "prompts/list",
+        "resources/list",
+        "resources/templates/list",
+    )
+    return [e for e in lines if e.get("operation") not in listings]
 
 
 def _seen(server_log: Path) -> list[dict]:
@@ -330,10 +360,15 @@ def test_proxy_uninspected_pass_names_what_it_relays(tmp_path: Path) -> None:
     finally:
         proc.stdin.close()
         proc.wait(timeout=10)
+    events = [json.loads(r) for r in audit_path.read_text().splitlines()]
+    # initialize without a pin file, relayed under pass, is named too (S109).
+    init = [e for e in events if e["operation"] == "initialize"][0]
+    assert init["reason_code"] == "unfiltered_passthrough"
+    assert init["allowed_fields"] == ["<unfiltered:initialize>"]
     event = [
         e
-        for e in (json.loads(r) for r in audit_path.read_text().splitlines())
-        if e["decision"] == "allow"
+        for e in events
+        if e["decision"] == "allow" and e["operation"] == "query_business_data"
     ][0]
     assert event["outcome"] == "access_reduced"
     assert event["reason_code"] == "unfiltered_passthrough"
@@ -360,3 +395,125 @@ def test_proxy_refuses_malformed_policy(tmp_path: Path) -> None:
         timeout=30,
     )
     assert proc.returncode != 0  # fail-closed at startup, server never proxied
+
+
+# -- S109 #659: host->server argument rules, interface pins, candidates ----------------
+
+
+def test_proxy_without_tool_rules_refuses_every_call(tmp_path: Path) -> None:
+    """No --tool-rules: a tools/call is refused before the server sees it
+    (argument_rule_missing); --unchecked-arguments pass forwards it and the
+    reply's event names the arguments unfiltered."""
+    proc, audit_path, server_log = _start(tmp_path, rules=None)
+    try:
+        refused = call(proc, 1, "query_business_data")
+        assert "argument_rule_missing" in refused["result"]["content"][0]["text"]
+        rpc(proc, {"jsonrpc": "2.0", "id": 2, "method": "ping"})
+        assert not [m for m in _seen(server_log) if m.get("method") == "tools/call"]
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=10)
+
+    other = tmp_path / "pass"
+    other.mkdir()
+    proc, audit_path, server_log = _start(
+        other, "--unchecked-arguments", "pass", rules=None
+    )
+    try:
+        resp = call(proc, 1, "query_business_data", {"anything": "x"})
+        assert resp["result"]["structuredContent"] == {
+            "name": "ACME",
+            "company": "ACME Inc",
+        }
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=10)
+    allow = [e for e in _events(audit_path) if e["decision"] == "allow"]
+    assert allow and "<unfiltered:arguments>" in allow[0]["allowed_fields"]
+    assert allow[0].get("outcome") != "protected"
+
+
+def test_proxy_refuses_an_argument_off_the_allow_list(proxy) -> None:
+    proc, audit_path, server_log = proxy
+    refused = call(proc, 1, "query_business_data", {"q": "x", "ssn": "123-45-6789"})
+    assert "argument_not_allowed" in refused["result"]["content"][0]["text"]
+    rpc(proc, {"jsonrpc": "2.0", "id": 2, "method": "ping"})
+    assert not [m for m in _seen(server_log) if m.get("method") == "tools/call"]
+    deny = [e for e in _events(audit_path) if e["decision"] == "deny"]
+    assert deny[0]["reason_code"] == "argument_not_allowed"
+    assert deny[0]["blocked_fields"] == ["ssn"]  # the name, never the value
+
+
+def test_proxy_withholds_unpinned_interface_and_writes_candidates(
+    tmp_path: Path,
+) -> None:
+    candidates = tmp_path / "candidates.json"
+    proc, audit_path, _ = _start(tmp_path, "--interface-candidates", str(candidates))
+    try:
+        init = rpc(
+            proc, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+        )
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=10)
+    assert init["result"]["serverInfo"] == {"name": "mcp-server", "version": "0"}
+    written = json.loads(candidates.read_text())
+    assert written["initialize"] == {"serverInfo": {"name": "fake", "version": "0"}}
+    assert oct(candidates.stat().st_mode & 0o777) == "0o600"
+    event = [
+        e for e in _events(audit_path, interface=True) if e["operation"] == "initialize"
+    ][0]
+    assert event["reason_code"] == "interface_unapproved"
+
+    pinned_dir = tmp_path / "pinned"
+    pinned_dir.mkdir()
+    pins = pinned_dir / "pins.json"
+    pins.write_text(json.dumps({"version": 0, "initialize": written["initialize"]}))
+    proc, _, _ = _start(pinned_dir, "--interface-pins", str(pins))
+    try:
+        init = rpc(
+            proc, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+        )
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=10)
+    assert init["result"]["serverInfo"] == {"name": "fake", "version": "0"}
+
+
+def test_proxy_refuses_relay_only_rules_at_start(tmp_path: Path) -> None:
+    """A query / fields rule is judged by aegis-mcp-relay only: the proxy refuses
+    the document instead of reading it as if it enforced it."""
+    rules = tmp_path / "rules.json"
+    rules.write_text(
+        json.dumps(
+            {
+                "q": {
+                    "access": "read",
+                    "arguments": {
+                        "allow": ["q"],
+                        "query": {"q": {"language": "soql", "record_path": "records"}},
+                    },
+                }
+            }
+        )
+    )
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(json.dumps(POLICY))
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aegis_trust.mcp_proxy",
+            "--policy",
+            str(policy_path),
+            "--tool-rules",
+            str(rules),
+            "--",
+            "true",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 2
+    assert "tool_rules_relay_only" in proc.stderr

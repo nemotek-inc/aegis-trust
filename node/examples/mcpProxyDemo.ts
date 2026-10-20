@@ -41,6 +41,9 @@ const POLICY = {
   defaults: { unknown_tool: "block" },
 };
 
+// The argument rule: this read tool takes no arguments the operator did not list.
+const RULES = { query_business_data: { access: "read", arguments: { allow: ["customer_id"] } } };
+
 const CALL = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "query_business_data", arguments: {} } };
 const BAD = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "exfiltrate_everything", arguments: {} } };
 
@@ -72,6 +75,8 @@ async function main(): Promise<void> {
   const audit = join(dir, "events.jsonl");
   writeFileSync(server, FAKE_SERVER);
   writeFileSync(policy, JSON.stringify(POLICY));
+  const rules = join(dir, "rules.json");
+  writeFileSync(rules, JSON.stringify(RULES));
 
   // 1) WITHOUT the proxy: the agent talks straight to the server.
   const raw = await collect([server], JSON.stringify(CALL) + "\n");
@@ -83,7 +88,7 @@ async function main(): Promise<void> {
 
   // 2) WITH aegis-mcp-proxy on the path (server unmodified).
   const through = await collect(
-    [PROXY, "--policy", policy, "--agent-id", "demo-host", "--audit-path", audit, "--", process.execPath, server],
+    [PROXY, "--policy", policy, "--tool-rules", rules, "--agent-id", "demo-host", "--audit-path", audit, "--", process.execPath, server],
     JSON.stringify(CALL) + "\n" + JSON.stringify(BAD) + "\n",
   );
   const m = byId(through.out);

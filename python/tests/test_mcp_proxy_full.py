@@ -93,12 +93,23 @@ def _clean_env(**extra: str) -> dict[str, str]:
     return env
 
 
+def _rules(policy: dict) -> dict:
+    """An argument rule for every tool the policy maps (S109: no rule = refused)."""
+    return {
+        tool: {"access": "read", "arguments": {"allow": ["purpose", "q"]}}
+        for tool in policy["tools"]
+        if "/" not in tool
+    }
+
+
 def _spawn(tmp_path: Path, gateway_url: str, gate: str, policy: dict | None = None):
     server_py = tmp_path / "fake_server.py"
     server_py.write_text(FAKE_SERVER)
     policy_path = tmp_path / "policy.json"
     policy_path.write_text(json.dumps(policy or POLICY))
     audit_path = tmp_path / "events.jsonl"
+    rules_path = tmp_path / "rules.json"
+    rules_path.write_text(json.dumps(_rules(policy or POLICY)))
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -106,6 +117,8 @@ def _spawn(tmp_path: Path, gateway_url: str, gate: str, policy: dict | None = No
             "aegis_trust.mcp_proxy",
             "--policy",
             str(policy_path),
+            "--tool-rules",
+            str(rules_path),
             "--agent-id",
             "full-gate-test",
             "--audit-path",
@@ -246,6 +259,8 @@ def test_lite_mode_unchanged_no_gateway_calls(gateway, tmp_path):
     server_py.write_text(FAKE_SERVER)
     policy_path = tmp_path / "policy.json"
     policy_path.write_text(json.dumps(POLICY))
+    rules_path = tmp_path / "rules.json"
+    rules_path.write_text(json.dumps(_rules(POLICY)))
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -253,6 +268,8 @@ def test_lite_mode_unchanged_no_gateway_calls(gateway, tmp_path):
             "aegis_trust.mcp_proxy",
             "--policy",
             str(policy_path),
+            "--tool-rules",
+            str(rules_path),
             "--",
             sys.executable,
             str(server_py),

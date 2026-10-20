@@ -4,7 +4,7 @@ The primary target is the coding agent itself (Claude Code, Cursor, codex, agy,
 any MCP host). You do not change the agent or the MCP server — you point the
 agent's MCP config at `aegis-mcp-proxy` instead of the raw server:
 
-    host  <--stdio-->  aegis-mcp-proxy --policy p.json  <--stdio-->  real MCP server
+    host  <--stdio-->  aegis-mcp-proxy --policy p.json --tool-rules r.json  <--stdio-->  real MCP server
 
 Every tools/call *result* is filtered to the policy's scope before it can enter
 the agent's model context, logs, or downstream tool calls — server unmodified,
@@ -56,6 +56,9 @@ POLICY = {
     "defaults": {"unknown_tool": "block"},
 }
 
+# The argument rule: this read tool takes no arguments the operator did not list.
+RULES = {"query_business_data": {"access": "read", "arguments": {"allow": ["customer_id"]}}}
+
 CALL = {
     "jsonrpc": "2.0",
     "id": 1,
@@ -83,6 +86,8 @@ def main() -> int:
         server.write_text(FAKE_SERVER)
         policy = d / "policy.json"
         policy.write_text(json.dumps(POLICY))
+        rules = d / "rules.json"
+        rules.write_text(json.dumps(RULES))
         audit = d / "events.jsonl"
 
         # 1) WITHOUT the proxy: the agent talks straight to the server.
@@ -107,6 +112,8 @@ def main() -> int:
                 "aegis_trust.mcp_proxy",
                 "--policy",
                 str(policy),
+                "--tool-rules",
+                str(rules),
                 "--agent-id",
                 "demo-host",
                 "--audit-path",

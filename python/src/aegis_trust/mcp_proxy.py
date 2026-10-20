@@ -32,7 +32,12 @@ kind; anything the proxy does not recognise is dropped:
 - an error reply to a gated request: ``data`` through the field rule, the
   message uninspected;
 - replies to ``initialize`` and the listings: interface metadata, spec keys
-  only, and only the tools and families the policy maps;
+  only, and only the tools and families the policy maps; each entry is relayed
+  as the operator approved it (``--interface-pins``) — an entry that is not
+  pinned, or differs from its pin, is withheld (a tool keeps its policy-known
+  name and an empty object schema; a prompt / resource / template is left out;
+  ``initialize`` gets a neutral ``serverInfo``) and named
+  ``interface_unapproved``;
 - a reply that matches no outstanding host request (a duplicate) is dropped;
 - server notifications: cancel / progress / list_changed / resources-updated
   are projected; server logs are uninspected; anything else is dropped;
@@ -51,21 +56,29 @@ model writes ``arguments.purpose``, so a declared purpose that differs from the
 mapping is refused (``declared_purpose_refused``) unless the operator passes
 ``--allow-declared-purpose``.
 
+A ``tools/call``'s arguments (host->server) pass only by the tool's rule
+(``--tool-rules``, the same shape as aegis-mcp-relay's ``tools``): every
+argument leaf must be on the tool's ``arguments.allow`` list
+(``argument_not_allowed``, the refused names in the event); a tool with no rule
+is refused (``argument_rule_missing``). ``--unchecked-arguments pass`` forwards
+a call whose tool has no rule and the reply's event names it unfiltered (never
+``protected``).
+
+Progress numbers are made by the proxy: a notification for a token the host
+sent carries ``progress`` = how many the proxy has relayed for that token, never
+the server's numbers, and no ``total``.
+
 Named limits (documented, not closed):
-- interface metadata (tool / resource / prompt names, titles, descriptions,
-  schemas, ``serverInfo``, ``instructions``) is relayed: it is the server's
-  description of its own interface, not data under a purpose. A server that
-  writes data values into its own metadata is not minimized.
-- numbers a server chooses (progress counts) and the presence or timing of
-  lines are low-bandwidth channels a server can signal through on purpose.
-- host->server direction (tool *arguments*, sampling responses) is not
-  inspected: the proxy minimizes what enters the host's context, it does not
-  yet police what the host sends out. Egress policy (``destinations``) is
-  enforced by the SDK/gateway forms in v0.
+- the presence and timing of lines are low-bandwidth channels a server can
+  signal through on purpose; a relay cannot close them.
+- a ``prompts/get`` or ``completion/complete`` argument reaches the server as
+  the host wrote it (the call itself is gated by the policy's ``tools`` map).
+- egress policy (``destinations``) is enforced by the SDK/gateway forms in v0.
 
 Usage:
-    python -m aegis_trust.mcp_proxy --policy policy.json [--agent-id claude-code] \
-        -- <real-server-command> [args...]
+    python -m aegis_trust.mcp_proxy --policy policy.json --tool-rules rules.json \
+        --interface-pins pins.json [--interface-candidates candidates.json] \
+        [--agent-id claude-code] -- <real-server-command> [args...]
 
 Host registration (e.g. Claude Code .mcp.json):
     {"mcpServers": {"crm": {"command": "python3",
@@ -92,7 +105,7 @@ from aegis_trust.canonical import (
     CanonicalPurpose,
     load_canonical_policy,
 )
-from aegis_trust.errors import AegisConfigError
+from aegis_trust.errors import AegisConfigError, aegis_docs_url
 
 try:  # single-source runtime version
     from aegis_trust import __version__ as _sdk_version
@@ -224,9 +237,181 @@ _LIST_CHANGED = frozenset(
 )
 
 
+#: The pin file's section for each listing, and the key that names an entry.
+_PIN_SECTIONS = {
+    "tools/list": ("tools", "name"),
+    "prompts/list": ("prompts", "name"),
+    "resources/list": ("resources", "uri"),
+    "resources/templates/list": ("resourceTemplates", "uriTemplate"),
+}
+#: What a tool with no approved metadata is listed as: its policy-known name only.
+_NEUTRAL_SCHEMA = {"type": "object"}
+_NEUTRAL_SERVER_INFO = {"name": "mcp-server", "version": "0"}
+
+
 def _obj(value: Any) -> dict[str, Any]:
     """The value when it is a JSON object, else an empty one."""
     return value if isinstance(value, dict) else {}
+
+
+def _json_equal(a: Any, b: Any) -> bool:
+    """Equality of two parsed JSON values, the same in the three implementations:
+    numbers by value, a boolean never equal to a number, objects by key set,
+    arrays in order."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, (int, float)) or isinstance(b, (int, float)):
+        return isinstance(a, (int, float)) and isinstance(b, (int, float)) and a == b
+    if isinstance(a, dict):
+        return (
+            isinstance(b, dict)
+            and a.keys() == b.keys()
+            and all(_json_equal(a[k], b[k]) for k in a)
+        )
+    if isinstance(a, list):
+        return (
+            isinstance(b, list)
+            and len(a) == len(b)
+            and all(_json_equal(x, y) for x, y in zip(a, b))
+        )
+    return type(a) is type(b) and a == b
+
+
+def _config_error(message: str, code: str) -> AegisConfigError:
+    return AegisConfigError(
+        message,
+        code=code,
+        remediation="Fix the proxy's --tool-rules / --interface-pins document; see schemas/v0/mcp-hosts.md.",
+        docs_url=aegis_docs_url(code),
+    )
+
+
+def validate_tool_rules(raw: Any) -> dict[str, dict[str, Any]]:
+    """The ``--tool-rules`` document, checked: ``{tool: {"access": "read" |
+    "write", "arguments": {"allow": [path, ...]}}}``. ``query`` and ``fields``
+    rules are judged by aegis-mcp-relay only; a document that has them is
+    refused rather than read as if they were enforced here."""
+    if not isinstance(raw, dict):
+        raise _config_error(
+            "tool rules must be a JSON object", "aegis.mcp_proxy.tool_rules_invalid"
+        )
+    out: dict[str, dict[str, Any]] = {}
+    for tool, rule in raw.items():
+        if not isinstance(tool, str) or not tool or not isinstance(rule, dict):
+            raise _config_error(
+                f"tool rule {tool!r} must be an object",
+                "aegis.mcp_proxy.tool_rules_invalid",
+            )
+        unknown = set(rule) - {"access", "arguments"}
+        if unknown:
+            raise _config_error(
+                f"tool rule {tool!r}: unknown keys {sorted(unknown)}",
+                code="aegis.mcp_proxy.tool_rules_invalid",
+            )
+        if rule.get("access", "write") not in ("read", "write"):
+            raise _config_error(
+                f"tool rule {tool!r}: access must be read or write",
+                code="aegis.mcp_proxy.tool_rules_invalid",
+            )
+        args = rule.get("arguments")
+        if args is not None:
+            if not isinstance(args, dict):
+                raise _config_error(
+                    f"tool rule {tool!r}: arguments must be an object",
+                    code="aegis.mcp_proxy.tool_rules_invalid",
+                )
+            relay_only = set(args) & {"query", "fields"}
+            if relay_only:
+                raise _config_error(
+                    f"tool rule {tool!r}: {sorted(relay_only)} are judged by aegis-mcp-relay "
+                    "only; this proxy does not enforce them",
+                    code="aegis.mcp_proxy.tool_rules_relay_only",
+                )
+            if set(args) - {"allow"}:
+                raise _config_error(
+                    f"tool rule {tool!r}: unknown argument keys {sorted(set(args) - {'allow'})}",
+                    code="aegis.mcp_proxy.tool_rules_invalid",
+                )
+            allow = args.get("allow")
+            if not isinstance(allow, list) or not all(
+                isinstance(p, str) and p for p in allow
+            ):
+                raise _config_error(
+                    f"tool rule {tool!r}: arguments.allow must be a list of paths",
+                    code="aegis.mcp_proxy.tool_rules_invalid",
+                )
+        out[tool] = rule
+    return out
+
+
+def validate_interface_pins(raw: Any) -> dict[str, Any]:
+    """The ``--interface-pins`` document: ``{"version": 0, "initialize": {...},
+    "tools": {name: entry}, "prompts": {...}, "resources": {...},
+    "resourceTemplates": {...}}``, each value a projected entry."""
+    if not isinstance(raw, dict) or raw.get("version") != 0:
+        raise _config_error(
+            "interface pins must be an object with version 0",
+            "aegis.mcp_proxy.interface_pins_invalid",
+        )
+    sections = {s for s, _ in _PIN_SECTIONS.values()}
+    unknown = set(raw) - sections - {"version", "initialize"}
+    if unknown:
+        raise _config_error(
+            f"interface pins: unknown keys {sorted(unknown)}",
+            "aegis.mcp_proxy.interface_pins_invalid",
+        )
+    for section in sections:
+        if not isinstance(raw.get(section, {}), dict):
+            raise _config_error(
+                f"interface pins: {section} must be an object",
+                "aegis.mcp_proxy.interface_pins_invalid",
+            )
+    if "initialize" in raw and not isinstance(raw["initialize"], dict):
+        raise _config_error(
+            "interface pins: initialize must be an object",
+            "aegis.mcp_proxy.interface_pins_invalid",
+        )
+    return raw
+
+
+def _leaf_paths(value: Any, prefix: str, out: list[str], bad: list[str]) -> None:
+    """Every leaf path of a tool call's arguments (an array or an empty object is
+    a leaf). A key that is empty or contains '.' cannot be named by a path and is
+    reported in ``bad``."""
+    if isinstance(value, dict) and value:
+        for key, item in value.items():
+            if not key or "." in key:
+                bad.append(f"{prefix}.{key}" if prefix else key)
+                continue
+            _leaf_paths(item, f"{prefix}.{key}" if prefix else key, out, bad)
+    elif prefix:
+        out.append(prefix)
+
+
+def check_arguments(
+    rule: dict[str, Any] | None, arguments: Any
+) -> tuple[str, list[str]] | None:
+    """The argument rule of one ``tools/call``: None = passes, else (reason,
+    refused argument names). The same rule as aegis-mcp-relay's: a read tool and
+    a write tool alike pass only with every leaf on ``arguments.allow``."""
+    if rule is None:
+        return "argument_rule_missing", []
+    allow = _obj(rule.get("arguments")).get("allow")
+    if not isinstance(allow, list):
+        return "argument_rule_missing", []
+    if arguments is None:
+        return None
+    if not isinstance(arguments, dict):
+        return "argument_not_allowed", ["<arguments>"]
+    paths: list[str] = []
+    bad: list[str] = []
+    _leaf_paths(arguments, "", paths, bad)
+    refused = bad + [
+        p for p in paths if not any(p == a or p.startswith(a + ".") for a in allow)
+    ]
+    if refused:
+        return "argument_not_allowed", sorted(set(refused))
+    return None
 
 
 def _member(value: Any, allowed: frozenset[Any]) -> bool:
@@ -256,6 +441,9 @@ class _HostRequest:
     purpose: str | None = None  # set only for gated methods
     uri: str | None = None  # resources/read: the URI the host asked for
     declared_override: bool = False  # the purpose came from arguments.purpose
+    arguments_unchecked: bool = (
+        False  # forwarded without a rule (--unchecked-arguments pass)
+    )
 
 
 class _Disclosure:
@@ -319,9 +507,17 @@ class ShieldProxy:
         gate: GatewayGate | None = None,
         uninspected: str = "withhold",
         allow_declared_purpose: bool = False,
+        tool_rules: dict[str, dict[str, Any]] | None = None,
+        unchecked_arguments: str = "refuse",
+        interface_pins: dict[str, Any] | None = None,
+        candidates_path: str | None = None,
     ) -> None:
         if uninspected not in ("withhold", "pass"):
             raise ValueError(f"unknown uninspected mode {uninspected!r}")
+        if unchecked_arguments not in ("refuse", "pass"):
+            raise ValueError(
+                f"unknown unchecked_arguments mode {unchecked_arguments!r}"
+            )
         self.policy = policy
         self.emitter = emitter
         self.agent_id = agent_id
@@ -329,6 +525,15 @@ class ShieldProxy:
         self.gate = gate
         self.uninspected = uninspected
         self.allow_declared_purpose = allow_declared_purpose
+        self.tool_rules = validate_tool_rules(tool_rules or {})
+        self.unchecked_arguments = unchecked_arguments
+        # No pin file = nothing approved (the metadata is withheld, not relayed).
+        self.interface_pins = validate_interface_pins(interface_pins or {"version": 0})
+        #: Projected server entries that were not relayed as pinned, for the
+        #: operator to review and approve (``--interface-candidates``).
+        self.candidates: dict[str, Any] = {"version": 0}
+        self.candidates_path = candidates_path
+        self._progress_counts: dict[Any, int] = {}
         self._pending: dict[Any, _HostRequest] = {}
         self._cursors: dict[
             str, tuple[str, Any]
@@ -442,6 +647,19 @@ class ShieldProxy:
             self._deny(declared or "unknown", operation, "unknown_tool")
             return None, self._block_reply(msg_id, operation, "unknown_tool")
 
+        # host->server: a tools/call's arguments pass only by the tool's rule.
+        arguments_unchecked = False
+        if method == "tools/call":
+            rule = self.tool_rules.get(lookup)
+            if rule is None and self.unchecked_arguments == "pass":
+                arguments_unchecked = True
+            else:
+                refusal = check_arguments(rule, params.get("arguments"))
+                if refusal is not None:
+                    reason, names = refusal
+                    self._deny(purpose.name, operation, reason, blocked_fields=names)
+                    return None, self._block_reply(msg_id, operation, reason)
+
         if self.gate is not None:
             allowed, reason = self.gate.check(operation, purpose)
             if not allowed:
@@ -463,6 +681,7 @@ class ShieldProxy:
                 purpose=purpose.name,
                 uri=uri,
                 declared_override=override,
+                arguments_unchecked=arguments_unchecked,
             ),
         )
         return line, None
@@ -567,15 +786,13 @@ class ShieldProxy:
                 return _error_reply(
                     msg_id, -32603, "Aegis: unsupported protocol version"
                 )
-            return _line({"jsonrpc": "2.0", "id": msg_id, "result": projected})
+            pinned = self._pin_initialize(projected)
+            self._flush_candidates()
+            return _line({"jsonrpc": "2.0", "id": msg_id, "result": pinned})
         if request.method in _LISTING_METHODS:
-            return _line(
-                {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": self._project_listing(request.method, result),
-                }
-            )
+            listing = self._project_listing(request.method, result)
+            self._flush_candidates()
+            return _line({"jsonrpc": "2.0", "id": msg_id, "result": listing})
         if request.method in _EMPTY_RESULT_METHODS:
             return _line({"jsonrpc": "2.0", "id": msg_id, "result": {}})
         # A reply to a method the proxy has no projection for.
@@ -589,6 +806,9 @@ class ShieldProxy:
     ) -> bytes:
         purpose = self.policy.purposes[request.purpose]  # type: ignore[index]
         disclosure = _Disclosure(purpose.name, self.uninspected)
+        if request.arguments_unchecked:
+            # The call went out without an argument rule: the reply never says protected.
+            disclosure.unfiltered.append("<unfiltered:arguments>")
         if "error" in msg:
             out = {
                 "jsonrpc": "2.0",
@@ -898,18 +1118,111 @@ class ShieldProxy:
         data_method = _LISTING_METHODS[method][1]
         return data_method == "tools/call" or data_method in self.policy.tools
 
+    def _pin_initialize(self, projected: dict[str, Any]) -> dict[str, Any]:
+        """``serverInfo`` and ``instructions`` are server-written: relayed only as
+        approved (the pin's ``initialize``)."""
+        interface = {
+            k: projected[k] for k in ("serverInfo", "instructions") if k in projected
+        }
+        pinned = self.interface_pins.get("initialize")
+        if pinned is not None and _json_equal(pinned, interface):
+            return projected
+        with self._lock:
+            self.candidates["initialize"] = interface
+        if self.uninspected == "pass":
+            self._interface_event("initialize", [], ["<unfiltered:initialize>"])
+            return projected
+        out = {k: v for k, v in projected.items() if k not in interface}
+        out["serverInfo"] = dict(_NEUTRAL_SERVER_INFO)
+        self._interface_event("initialize", ["<withheld:initialize>"], [])
+        return out
+
+    def _pin_entry(
+        self,
+        method: str,
+        index: int,
+        projected: dict[str, Any],
+        withheld: list[str],
+        unfiltered: list[str],
+    ) -> dict[str, Any] | None:
+        """One listing entry: the pinned value when the server's projected entry
+        equals it; otherwise withheld (a tool keeps its policy-known name only)
+        or, under ``uninspected=pass``, relayed and named."""
+        section, key_name = _PIN_SECTIONS[method]
+        key = projected.get(key_name)
+        pinned = (
+            _obj(self.interface_pins.get(section)).get(key)
+            if isinstance(key, str)
+            else None
+        )
+        if pinned is not None and _json_equal(pinned, projected):
+            return pinned
+        if isinstance(key, str):
+            with self._lock:
+                self.candidates.setdefault(section, {})[key] = projected
+        # A tool's name comes from the operator's policy; any other entry's name
+        # or URI is server-written, so the marker names its position only.
+        marker = f"{method}:{key}" if method == "tools/list" else f"{method}[{index}]"
+        if self.uninspected == "pass":
+            unfiltered.append(f"<unfiltered:{marker}>")
+            return projected
+        withheld.append(f"<withheld:{marker}>")
+        if method == "tools/list":
+            return {"name": key, "inputSchema": dict(_NEUTRAL_SCHEMA)}
+        return None
+
+    def _flush_candidates(self) -> None:
+        """Write the candidates for the operator (owner-only, replaced whole).
+        The file holds server-written metadata: it is for review, never relayed."""
+        if not self.candidates_path:
+            return
+        with self._lock:
+            body = json.dumps(
+                self.candidates, ensure_ascii=False, indent=1, sort_keys=True
+            )
+        tmp = f"{self.candidates_path}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(body + "\n")
+        os.replace(tmp, self.candidates_path)
+
+    def _interface_event(
+        self, operation: str, withheld: list[str], unfiltered: list[str]
+    ) -> None:
+        if not withheld and not unfiltered:
+            return
+        self.emitter.emit(
+            principal=self._principal(),
+            purpose="unknown",
+            operation=operation,
+            decision="allow",
+            outcome="access_reduced" if withheld else None,
+            reason_code="interface_unapproved"
+            if withheld
+            else "unfiltered_passthrough",
+            blocked_fields=sorted(set(withheld)),
+            allowed_fields=sorted(set(unfiltered)) or None,
+        )
+
     def _project_listing(self, method: str, result: Any) -> dict[str, Any]:
         key = _LISTING_METHODS[method][0]
         entries = result.get(key) if isinstance(result, dict) else None
         out: dict[str, Any] = {key: []}
         if not self._family_mapped(method) or not isinstance(entries, list):
             return out
-        for entry in entries:
+        withheld: list[str] = []
+        unfiltered: list[str] = []
+        for index, entry in enumerate(entries):
             if not isinstance(entry, dict):
                 continue
             projected = self._project_entry(method, entry)
             if projected is not None:
-                out[key].append(projected)
+                relayed = self._pin_entry(
+                    method, index, projected, withheld, unfiltered
+                )
+                if relayed is not None:
+                    out[key].append(relayed)
+        self._interface_event(method, withheld, unfiltered)
         cursor = result.get("nextCursor")
         if isinstance(cursor, str) and cursor:
             handle = "aegis-cursor-" + secrets.token_hex(16)  # (ii-c)
@@ -1004,11 +1317,12 @@ class ShieldProxy:
                 )
             if not known:
                 return b""
-            projected: dict[str, Any] = {"progressToken": token}
-            for key in ("progress", "total"):
-                value = params.get(key)
-                if isinstance(value, (int, float)) and not isinstance(value, bool):
-                    projected[key] = value
+            # The number is the proxy's own count, never the server's: a number a
+            # server chooses can carry a value one notification at a time.
+            with self._lock:
+                count = self._progress_counts.get(_id_key(token), 0) + 1
+                self._progress_counts[_id_key(token)] = count
+            projected: dict[str, Any] = {"progressToken": token, "progress": count}
             if params.get("message") is not None and self.uninspected == "pass":
                 projected["message"] = params["message"]
             out["params"] = projected
@@ -1077,7 +1391,15 @@ class ShieldProxy:
             )
         return b""
 
-    def _deny(self, purpose: str, operation: str, reason: str) -> None:
+    def _deny(
+        self,
+        purpose: str,
+        operation: str,
+        reason: str,
+        blocked_fields: list[str] | None = None,
+    ) -> None:
+        """A refusal. ``blocked_fields`` names what was refused (argument names,
+        never values)."""
         self.emitter.emit(
             principal=self._principal(),
             purpose=purpose,
@@ -1085,7 +1407,7 @@ class ShieldProxy:
             decision="deny",
             outcome="blocked",
             reason_code=reason,
-            blocked_fields=[],
+            blocked_fields=sorted(set(blocked_fields or [])),
         )
 
     def _principal(self) -> dict[str, Any]:
@@ -1094,6 +1416,16 @@ class ShieldProxy:
             "session_id": self.session_id,
             "transport": "mcp",
         }
+
+
+def _read_json(path: str) -> Any:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise _config_error(
+            f"cannot read {path}: {exc}", "aegis.mcp_proxy.proxy_config_unreadable"
+        ) from exc
 
 
 def _line(msg: Any) -> bytes:
@@ -1211,6 +1543,37 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--tool-rules",
+        default=None,
+        help=(
+            "per-tool argument rules (JSON, aegis-mcp-relay's `tools` shape): "
+            "every argument leaf must be on the tool's arguments.allow; a tool with "
+            "no rule is refused"
+        ),
+    )
+    parser.add_argument(
+        "--unchecked-arguments",
+        choices=["refuse", "pass"],
+        default="refuse",
+        help=(
+            "a call whose tool has no rule: 'refuse' (default), or 'pass' — "
+            "forwarded, and the reply's event names the arguments unfiltered"
+        ),
+    )
+    parser.add_argument(
+        "--interface-pins",
+        default=None,
+        help=(
+            "approved interface metadata (JSON): an entry is relayed only as "
+            "pinned; without a pin it is withheld (a tool keeps its name only)"
+        ),
+    )
+    parser.add_argument(
+        "--interface-candidates",
+        default=None,
+        help="where to write the server's unapproved entries for review (0600)",
+    )
+    parser.add_argument(
         "server_cmd", nargs=argparse.REMAINDER, help="-- real MCP server command"
     )
     args = parser.parse_args(argv)
@@ -1235,6 +1598,18 @@ def main(argv: list[str] | None = None) -> int:
         # Coded one-liner on stderr, exit 2 — parity with the Node proxy.
         # A raw traceback here hid the machine-parseable `code` operators grep
         # for, and exit 1 diverged from Node's exit 2 for the same mistake.
+        print(f"aegis-mcp-proxy: {exc} [{exc.code}]", file=sys.stderr)
+        return 2
+    try:
+        tool_rules = (
+            validate_tool_rules(_read_json(args.tool_rules)) if args.tool_rules else {}
+        )
+        pins = (
+            validate_interface_pins(_read_json(args.interface_pins))
+            if args.interface_pins
+            else None
+        )
+    except AegisConfigError as exc:
         print(f"aegis-mcp-proxy: {exc} [{exc.code}]", file=sys.stderr)
         return 2
     emitter = CanonicalEmitter(
@@ -1270,7 +1645,23 @@ def main(argv: list[str] | None = None) -> int:
         gate=gate,
         uninspected=args.uninspected,
         allow_declared_purpose=args.allow_declared_purpose,
+        tool_rules=tool_rules,
+        unchecked_arguments=args.unchecked_arguments,
+        interface_pins=pins,
+        candidates_path=args.interface_candidates,
     )
+    if args.unchecked_arguments == "pass":
+        print(
+            "aegis-mcp-proxy: --unchecked-arguments pass — a call whose tool has no "
+            "rule is forwarded and recorded as unfiltered",
+            file=sys.stderr,
+        )
+    if pins is None:
+        print(
+            "aegis-mcp-proxy: no --interface-pins — the server's interface metadata is "
+            "withheld until approved (tools keep their names)",
+            file=sys.stderr,
+        )
     if args.uninspected == "pass":
         print(
             "aegis-mcp-proxy: --uninspected pass — output the field rule cannot "

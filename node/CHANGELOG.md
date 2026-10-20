@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Changed (breaking) — MCP proxy: approved interface only, the proxy's own progress numbers, argument rules
+- **Interface metadata is relayed only as the operator approved it.** `--interface-pins <file>` holds the
+  approved (projected) `initialize` and listing entries. An entry the server's projected entry equals is
+  relayed as pinned; any other entry, and every entry without a pin file, is withheld: a tool keeps its
+  policy-known name and `{"type": "object"}` as its schema, a prompt / resource / template is left out,
+  `initialize` gets a neutral `serverInfo` and no `instructions`. The event says `interface_unapproved`.
+  `--uninspected pass` relays an unpinned entry and names it unfiltered. `--interface-candidates <file>`
+  (0600) receives what the server offered, for review.
+- **Progress numbers are the proxy's own count** (1, 2, ... per token). The server's `progress` and `total`
+  never reach the host.
+- **A tools/call's arguments pass only by the tool's rule.** `--tool-rules <file>` (`{tool: {"access":
+  "read" | "write", "arguments": {"allow": [path, ...]}}}`, the shape aegis-mcp-relay uses): every argument
+  leaf must be on the list (`argument_not_allowed`, the refused names in the event); a tool with no rule is
+  refused (`argument_rule_missing`). `--unchecked-arguments pass` forwards a call whose tool has no rule and
+  names it unfiltered. `query` / `fields` rules are refused at start (judged by aegis-mcp-relay only).
+- The shared corpus `conformance/mcp_relay.v0.json` has 58 cases (the case `interface-metadata-named-limit`
+  is replaced by `interface-*`; new `arguments-*`). The named limit that remains: the presence and timing
+  of lines.
+
 ### Changed (breaking) — MCP proxy: nothing the filter cannot inspect reaches the host by default
 - `aegis-mcp-proxy` now classifies every server→host line and rebuilds it from a
   projection, the same rules as the Python proxy. Both run

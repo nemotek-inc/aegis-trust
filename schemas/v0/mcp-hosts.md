@@ -3,11 +3,14 @@
 `pip install aegis-trust` installs the `aegis-mcp-proxy` command (equivalently
 `python3 -m aegis_trust.mcp_proxy`). The proxy wraps any MCP server command:
 replace the server command with
-`aegis-mcp-proxy --policy <policy> --agent-id <host> -- <original command>`.
+`aegis-mcp-proxy --policy <policy> --tool-rules <rules> --interface-pins <pins> --agent-id <host> -- <original command>`.
 The host needs no other change; tool results arrive already minimized and every
 call lands in the canonical audit stream (`enforcement_point=mcp_proxy`). This
 is how an agent on the tool path sees only policy-permitted fields — host
-unmodified, fail-closed on unknown tools.
+unmodified, fail-closed on unknown tools. `--tool-rules` lists the arguments each
+tool may receive (a tool with no rule is refused) and `--interface-pins` holds the
+tool descriptions you approved (see Notes; `--interface-candidates` writes what the
+server offered, for you to review).
 
 ## Claude Code (`.mcp.json` / `claude mcp add`)
 
@@ -18,6 +21,10 @@ unmodified, fail-closed on unknown tools.
       "command": "aegis-mcp-proxy",
       "args": [
         "--policy", "/etc/aegis/policy.json",
+  "--tool-rules", "/etc/aegis/tool-rules.json",
+  "--interface-pins", "/etc/aegis/interface-pins.json",
+        "--tool-rules", "/etc/aegis/tool-rules.json",
+        "--interface-pins", "/etc/aegis/interface-pins.json",
         "--agent-id", "claude-code",
         "--", "node", "/opt/crm/mcp-server.js"
       ]
@@ -27,7 +34,7 @@ unmodified, fail-closed on unknown tools.
 ```
 
 CLI equivalent:
-`claude mcp add crm -- aegis-mcp-proxy --policy /etc/aegis/policy.json --agent-id claude-code -- node /opt/crm/mcp-server.js`
+`claude mcp add crm -- aegis-mcp-proxy --policy /etc/aegis/policy.json --tool-rules /etc/aegis/tool-rules.json --interface-pins /etc/aegis/interface-pins.json --agent-id claude-code -- node /opt/crm/mcp-server.js`
 
 ## Cursor (`.cursor/mcp.json`, same stdio shape)
 
@@ -38,6 +45,10 @@ CLI equivalent:
       "command": "aegis-mcp-proxy",
       "args": [
         "--policy", "/etc/aegis/policy.json",
+  "--tool-rules", "/etc/aegis/tool-rules.json",
+  "--interface-pins", "/etc/aegis/interface-pins.json",
+        "--tool-rules", "/etc/aegis/tool-rules.json",
+        "--interface-pins", "/etc/aegis/interface-pins.json",
         "--agent-id", "cursor",
         "--", "node", "/opt/crm/mcp-server.js"
       ]
@@ -54,6 +65,8 @@ command = "python3"
 args = [
   "-m", "aegis_trust.mcp_proxy",
   "--policy", "/etc/aegis/policy.json",
+  "--tool-rules", "/etc/aegis/tool-rules.json",
+  "--interface-pins", "/etc/aegis/interface-pins.json",
   "--agent-id", "codex",
   "--", "node", "/opt/crm/mcp-server.js",
 ]
@@ -69,6 +82,10 @@ args = [
       "args": [
         "-m", "aegis_trust.mcp_proxy",
         "--policy", "/etc/aegis/policy.json",
+  "--tool-rules", "/etc/aegis/tool-rules.json",
+  "--interface-pins", "/etc/aegis/interface-pins.json",
+        "--tool-rules", "/etc/aegis/tool-rules.json",
+        "--interface-pins", "/etc/aegis/interface-pins.json",
         "--agent-id", "agy",
         "--", "node", "/opt/crm/mcp-server.js"
       ]
@@ -100,12 +117,15 @@ args = [
     uninspected, and the code is kept only when it is a standard JSON-RPC code;
   - `initialize` and the listings: spec keys only. `tools/list` shows only the
     tools the policy maps; resource and prompt listings are empty unless
-    `resources/read` / `prompts/get` is mapped. Cursors become proxy handles;
+    `resources/read` / `prompts/get` is mapped. Cursors become proxy handles.
+    Each entry is then relayed **only as the operator approved it**
+    (`--interface-pins`, below);
   - a reply whose id matches no outstanding request (for example a second
     reply with the same id) is dropped;
   - server notifications: cancel, progress, `list_changed` and
     resources-updated are projected; server logs are uninspected; any other
-    notification is dropped;
+    notification is dropped. A progress notification carries the proxy's own
+    count (1, 2, ... per token), never the server's `progress` or `total`;
   - server requests: `ping` and `roots/list` are relayed under a proxy id.
     `sampling/createMessage`, `elicitation/create` and anything else are
     refused: the server gets JSON-RPC error -32601 and the host sees nothing.
@@ -121,15 +141,37 @@ args = [
   mapping is refused (`declared_purpose_refused`). `--allow-declared-purpose`
   restores the earlier rule (an explicit declaration wins); events then say
   `declared_purpose_override`.
-- Named limits (stated, not closed): (1) interface metadata — tool, resource
-  and prompt names, titles, descriptions and schemas, `serverInfo`,
-  `instructions` — is relayed: it is the server's description of its own
-  interface, not data under a purpose, and a server that writes data values
-  into it is not minimized. (2) numbers a server chooses (progress counts) and
-  the presence or timing of lines are low-bandwidth channels a server can use
-  on purpose. (3) the host→server direction (tool arguments, sampling
-  responses) is not inspected; egress `destinations` policy is enforced by the
-  SDK/gateway forms in v0.
+- Interface metadata (tool, resource and prompt names, titles, descriptions
+  and schemas, `serverInfo`, `instructions`) is server-written. It reaches the
+  host only as the operator pinned it: `--interface-pins <file>` holds
+  `{"version": 0, "initialize": {...}, "tools": {name: entry}, "prompts":
+  {...}, "resources": {uri: entry}, "resourceTemplates": {...}}`, each value a
+  projected entry. An entry the server's projected entry equals is relayed as
+  pinned. Any other entry, and every entry when there is no pin file, is
+  withheld: a tool is listed by its policy-known name with `inputSchema`
+  `{"type": "object"}`, a prompt / resource / template is left out, and
+  `initialize` gets `serverInfo` `{"name": "mcp-server", "version": "0"}` and no
+  `instructions`; the event says `interface_unapproved` and names the entry (a
+  tool by name, anything else by position). `--uninspected pass` relays an
+  unpinned entry and names it `unfiltered`. `--interface-candidates <file>`
+  (0600) receives the projected entries that were not relayed as pinned: review
+  them and copy the approved ones into the pin file.
+- A `tools/call`'s arguments (host→server) pass only by the tool's rule:
+  `--tool-rules <file>` holds `{tool: {"access": "read" | "write",
+  "arguments": {"allow": [path, ...]}}}` (the shape aegis-mcp-relay uses). Every
+  argument leaf must be on the tool's `allow` list (a key containing `.` or
+  arguments that are not an object are refused too): `argument_not_allowed`,
+  with the refused argument names (never values) in `blocked_fields`. A tool
+  with no rule, or a rule with no `allow`, is refused (`argument_rule_missing`).
+  `--unchecked-arguments pass` forwards a call whose tool has no rule; the
+  reply's event names `<unfiltered:arguments>` and never says `protected`.
+  `query` and `fields` rules are judged by aegis-mcp-relay only; a rules file
+  that has them is refused at start (`aegis.mcp_proxy.tool_rules_relay_only`).
+- Named limits (stated, not closed): the presence and timing of lines are
+  low-bandwidth channels a server can use on purpose; a relay cannot close
+  them. A `prompts/get` or `completion/complete` argument reaches the server as
+  the host wrote it (the call itself is gated by the `tools` map). Egress
+  `destinations` policy is enforced by the SDK/gateway forms in v0.
 
 ## FULL mode on the proxy path (gateway-backed per-call gate)
 

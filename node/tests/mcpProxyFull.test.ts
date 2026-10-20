@@ -102,10 +102,22 @@ function runProxy(
   const auditPath = join(dir, "events.jsonl");
   writeFileSync(serverPath, FAKE_SERVER);
   writeFileSync(policyPath, JSON.stringify(POLICY));
+  // S109: a tools/call needs an argument rule (no rule = refused).
+  const rulesPath = join(dir, "rules.json");
+  writeFileSync(
+    rulesPath,
+    JSON.stringify(
+      Object.fromEntries(
+        Object.keys(POLICY.tools)
+          .filter((t) => !t.includes("/"))
+          .map((t) => [t, { access: "read", arguments: { allow: ["purpose", "q"] } }]),
+      ),
+    ),
+  );
 
   const proc = spawn(
     process.execPath,
-    [PROXY, "--policy", policyPath, "--agent-id", "full-gate-test", "--audit-path", auditPath,
+    [PROXY, "--policy", policyPath, "--tool-rules", rulesPath, "--agent-id", "full-gate-test", "--audit-path", auditPath,
       "--gate", gate, "--", process.execPath, serverPath, seenPath],
     { stdio: ["pipe", "pipe", "inherit"], env: { PATH: process.env.PATH ?? "", ...env } },
   );

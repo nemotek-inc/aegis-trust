@@ -115,12 +115,16 @@ def test_mcp_relay_case(case: dict, tmp_path: Path) -> None:
         ENFORCEMENT_MCP_PROXY, "corpus", path=events_path, policy_id=policy.policy_id
     )
     flags = case.get("flags", {})
+    rules = flags.get("tool_rules", DOC.get("tool_rules", {}).get(case["policy"], {}))
     proxy = ShieldProxy(
         policy,
         emitter,
         agent_id="corpus-host",
         uninspected=flags.get("uninspected", "withhold"),
         allow_declared_purpose=flags.get("allow_declared_purpose", False),
+        tool_rules={} if flags.get("no_tool_rules") else rules,
+        unchecked_arguments=flags.get("unchecked_arguments", "refuse"),
+        interface_pins=flags.get("interface_pins"),
     )
     handles: dict[str, str] = {}
     host_bound: list[str] = []

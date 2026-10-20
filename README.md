@@ -10,8 +10,10 @@
 Point your MCP host at `aegis-mcp-proxy` instead of the raw server — **no change
 to the agent or the server.** Every tool result is minimized to your policy
 before it can enter the model's context, logs, or downstream tool calls; tools
-the policy does not map are blocked fail-closed; every call lands in a canonical
-audit stream.
+the policy does not map are blocked fail-closed; a tool's arguments pass only if
+`tool-rules.json` lists them; tool descriptions reach the model only as you
+approved them in `interface-pins.json`; every call lands in a canonical audit
+stream.
 
 ```json
 // .mcp.json — wrap any MCP server with the proxy
@@ -19,7 +21,8 @@ audit stream.
   "mcpServers": {
     "crm": {
       "command": "aegis-mcp-proxy",
-      "args": ["--policy", "policy.json", "--agent-id", "claude-code",
+      "args": ["--policy", "policy.json", "--tool-rules", "tool-rules.json",
+               "--interface-pins", "interface-pins.json", "--agent-id", "claude-code",
                "--", "node", "/opt/crm/mcp-server.js"]
     }
   }
