@@ -27,21 +27,29 @@ on:
   workflow_run:
     workflows: [ci, audit]
     types: [completed]
+  # Core の SDK-in-the-loop の判定 (commit status) が付いた時にも判定し直す。ci / audit が先に
+  # 緑になった PR は、判定が付くまで待ち (3) で止まっているので、ここで起こさないと誰も merge しない。
+  status:
 
 concurrency:
-  group: merge-on-green-${{ github.event.workflow_run.head_sha }}
+  group: merge-on-green-${{ github.event.workflow_run.head_sha || github.event.sha }}
   cancel-in-progress: false
 
 permissions:
   contents: write        # squash merge が main に commit を作る
   pull-requests: write   # merge API
   checks: read           # 宣言された check がこの commit で緑かを見る
+  statuses: read         # 宣言された commit status (Core の判定) がこの commit で緑かを見る
   actions: write         # merge 後に main の事後検査を起動する
 
 jobs:
   merge:
     # PR 由来の走行だけ。main への push で起きた走行は対象外 (輪を作らない)。
-    if: github.event.workflow_run.event == 'pull_request'
+    # status は success の時だけ起きる。どの context を要求するかは宣言 (ops/required_checks.json) だけが
+    # 持つ — ここに context 名を書くと定義点が 2 つになる。判定は script が宣言から行う。
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') ||
+      (github.event_name == 'status' && github.event.state == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

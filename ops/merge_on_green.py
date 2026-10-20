@@ -21,7 +21,9 @@
     1. PR が武装条件を満たす (ops/auto_merge_decide.py — draft / fork / bot / 保留 label)
     2. 宣言された必須 check が **その commit で全部 success**
        — 「まだ来ていない」は success ではない。1 本でも欠けたら merge しない
-    3. PR が mergeable (conflict していない)
+    3. 宣言された commit status (`required_statuses`) が、宣言した account の付けたもので
+       **その commit で success** — Aegis Core の受入検査をこの commit に当てた結論 (S109)
+    4. PR が mergeable (conflict していない)
 
 merge の後:
     main への push は bot 由来なので workflow を再発火させない。**post-merge の検査が
@@ -128,11 +130,77 @@ def judge_checks(contexts: list[str], check_runs: list[dict]) -> tuple[bool, lis
     return ok, lines
 
 
+def required_statuses(path: Path = DECLARATION) -> list[tuple[str, int]]:
+    """宣言された commit status: (context, 付けてよい account の id)。宣言が無ければ空。
+
+    check run と違い、commit status は repo に書ける者なら誰でも (この repo の workflow の
+    token でも) 同じ context で付けられる。**だから context だけでは数えない** — 宣言した
+    account の id が付けたものだけを読む。
+    """
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise Unmeasurable(f"{path}: {exc}") from exc
+    entries = doc.get("required_statuses", [])
+    if not isinstance(entries, list):
+        raise Unmeasurable(f"{path}: required_statuses が配列でない")
+    out: list[tuple[str, int]] = []
+    for e in entries:
+        context = e.get("context") if isinstance(e, dict) else None
+        creator = e.get("creator_id") if isinstance(e, dict) else None
+        if not isinstance(context, str) or not context:
+            raise Unmeasurable(f"{path}: required_statuses の context が文字列でない: {e!r}")
+        if not isinstance(creator, int) or isinstance(creator, bool):
+            raise Unmeasurable(f"{path}: required_statuses の creator_id が整数でない: {e!r}")
+        out.append((context, creator))
+    if len({c for c, _ in out}) != len(out):
+        raise Unmeasurable(f"{path}: required_statuses の context が重複している")
+    return out
+
+
+def judge_statuses(declared: list[tuple[str, int]], statuses: list[dict]) -> tuple[bool, list[str]]:
+    """宣言された commit status が **その commit で、宣言した account の付けた最新が success** か。
+
+    別の account が付けた同じ context は読まない (数えたら、この repo に書ける誰でも緑にできる)。
+    「来ていない」「pending」「failure」「error」は緑ではない。
+    """
+    lines: list[str] = []
+    ok = True
+    for context, creator in declared:
+        mine: list[dict] = []
+        for s in statuses:
+            if not isinstance(s, dict):
+                raise Unmeasurable(f"status が dict でない: {s!r}")
+            if s.get("context") != context:
+                continue
+            by = (s.get("creator") or {}).get("id")
+            if by == creator:
+                mine.append(s)
+            else:
+                lines.append(f"  無視  {context}: 宣言外の account (id {by}) が付けた {s.get('state')}")
+        if not mine:
+            lines.append(f"  未着  {context}: 宣言した account の status が無い — 「まだ」は緑ではない")
+            ok = False
+            continue
+        newest = max(mine, key=lambda s: str(s.get("created_at") or ""))
+        state = newest.get("state")
+        if state == "success":
+            lines.append(f"  緑    {context}")
+        else:
+            lines.append(f"  {'途中' if state == 'pending' else '赤  '}  {context}: {state}")
+            ok = False
+    return ok, lines
+
+
 # --------------------------------------------------------------------------
 # 対照
 # --------------------------------------------------------------------------
 def _run(name: str, conclusion: str = "success", status: str = "completed", started: str = "2026-09-16T00:00:00Z") -> dict:
     return {"name": name, "status": status, "conclusion": conclusion, "started_at": started}
+
+
+def _st(state: str, creator: int = 7, created: str = "2026-10-20T00:00:00Z", context: str = "core") -> dict:
+    return {"context": context, "state": state, "creator": {"id": creator}, "created_at": created}
 
 
 def self_test() -> int:
@@ -180,7 +248,72 @@ def self_test() -> int:
     if not ok:
         bad += 1
 
-    total = len(cells) + 1
+    # 宣言された commit status (S109): 宣言した account の最新だけが判定の材料。
+    decl = [("core", 7)]
+    status_cells: list[tuple[str, list[dict], object]] = [
+        ("宣言した account の success → merge してよい (陽性対照)", [_st("success")], True),
+        ("status が来ていない → 待つ", [], False),
+        ("pending → 待つ", [_st("pending")], False),
+        ("failure → 待つ", [_st("failure")], False),
+        ("error → 待つ", [_st("error")], False),
+        ("**別の account の success は数えない** (この repo の workflow の token を含む)", [_st("success", creator=8)], False),
+        ("別の account の success が宣言した account の failure より新しくても待つ",
+         [_st("failure", created="2026-10-20T00:00:00Z"), _st("success", creator=8, created="2026-10-20T01:00:00Z")], False),
+        ("同じ account の新しい方で判定する (再判定で緑)",
+         [_st("failure", created="2026-10-20T00:00:00Z"), _st("success", created="2026-10-20T01:00:00Z")], True),
+        ("同じ account の新しい方で判定する (再判定で赤)",
+         [_st("success", created="2026-10-20T00:00:00Z"), _st("failure", created="2026-10-20T01:00:00Z")], False),
+        ("別の context の success は数えない", [_st("success", context="other")], False),
+        ("status の形が違えば判定不能 (2)", ["x"], Unmeasurable),  # type: ignore[list-item]
+    ]
+    for name, sts, want in status_cells:
+        try:
+            got = judge_statuses(decl, sts)[0]
+        except Unmeasurable:
+            got = Unmeasurable
+        ok = got is want if want is Unmeasurable else got == want
+        print(f"  {'[OK]  ' if ok else '[FAIL]'} {name}")
+        if not ok:
+            bad += 1
+            print(f"         want={want} got={got}")
+
+    # 宣言の形: creator_id が整数でない・context の重複は判定不能。宣言が無ければ要求なし。
+    import tempfile
+
+    decl_cells: list[tuple[str, dict, object]] = [
+        ("宣言に required_statuses が無ければ要求なし", {"required_contexts": ["a"]}, []),
+        ("creator_id が整数でなければ判定不能 (2)",
+         {"required_statuses": [{"context": "core", "creator_id": "7"}]}, Unmeasurable),
+        ("creator_id が無ければ判定不能 (2)", {"required_statuses": [{"context": "core"}]}, Unmeasurable),
+        ("context が重複していれば判定不能 (2)",
+         {"required_statuses": [{"context": "core", "creator_id": 7}, {"context": "core", "creator_id": 8}]},
+         Unmeasurable),
+    ]
+    for name, doc, want in decl_cells:
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "required_checks.json"
+            p.write_text(json.dumps(doc), encoding="utf-8")
+            try:
+                got = required_statuses(p)
+            except Unmeasurable:
+                got = Unmeasurable
+        ok = got is want if want is Unmeasurable else got == want
+        print(f"  {'[OK]  ' if ok else '[FAIL]'} {name}")
+        if not ok:
+            bad += 1
+            print(f"         want={want} got={got}")
+
+    try:
+        live = required_statuses()
+        ok = all(isinstance(c, str) and isinstance(i, int) for c, i in live)
+    except Unmeasurable:
+        ok = False
+        live = []
+    print(f"  {'[OK]  ' if ok else '[FAIL]'} 宣言から必須 status を読める ({[c for c, _ in live]})")
+    if not ok:
+        bad += 1
+
+    total = len(cells) + 1 + len(status_cells) + len(decl_cells) + 1
     print(f"merge-on-green self-test: {total - bad}/{total}")
     return 1 if bad else 0
 
@@ -209,13 +342,15 @@ def main() -> int:
             print("COULD NOT MEASURE: 判定する commit が決まらない", file=sys.stderr)
             return 2
         event = json.loads(Path(event_path).read_text(encoding="utf-8"))
-        sha = ((event.get("workflow_run") or {}).get("head_sha")) or ""
+        # workflow_run (ci / audit の完了) なら head_sha、status (Core の判定が付いた) なら sha。
+        sha = ((event.get("workflow_run") or {}).get("head_sha")) or event.get("sha") or ""
         if not sha:
-            print("COULD NOT MEASURE: workflow_run.head_sha が無い", file=sys.stderr)
+            print("COULD NOT MEASURE: workflow_run.head_sha / status の sha が無い", file=sys.stderr)
             return 2
 
     try:
         contexts = required_contexts()
+        declared_statuses = required_statuses()
         pulls = _api(f"repos/{args.repo}/commits/{sha}/pulls", token)
         if not isinstance(pulls, list):
             raise Unmeasurable("PR 一覧が list でない")
@@ -243,12 +378,19 @@ def main() -> int:
         if not isinstance(doc, dict):
             raise Unmeasurable("check-runs の返しが期待した形ではない")
         green, lines = judge_checks(contexts, doc.get("check_runs") or [])
+        status_lines: list[str] = []
+        if declared_statuses:
+            statuses = _api(f"repos/{args.repo}/commits/{sha}/statuses?per_page=100", token)
+            if not isinstance(statuses, list):
+                raise Unmeasurable("status 一覧が list でない")
+            status_green, status_lines = judge_statuses(declared_statuses, statuses)
+            green = green and status_green
     except Unmeasurable as exc:
         print(f"COULD NOT MEASURE: {exc}", file=sys.stderr)
         return 2
 
-    print(f"宣言された必須 check ({len(contexts)} 本) を commit {sha[:8]} で照合:")
-    for line in lines:
+    print(f"宣言された必須 check ({len(contexts)} 本) と status ({len(declared_statuses)} 本) を commit {sha[:8]} で照合:")
+    for line in lines + status_lines:
         print(line)
     if not green:
         print("まだ全部緑ではない — merge しない (赤ではなく、待ち)")
