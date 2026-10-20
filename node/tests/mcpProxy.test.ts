@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 import Ajv2020 from "ajv/dist/2020.js";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -89,10 +89,22 @@ function runProxy(extra: string[] = []): Promise<Run> {
   const seenPath = join(dir, "server_saw.jsonl");
   writeFileSync(serverPath, FAKE_SERVER);
   writeFileSync(policyPath, JSON.stringify(POLICY));
+  // S109: a tools/call needs an argument rule (no rule = refused).
+  const rulesPath = join(dir, "rules.json");
+  writeFileSync(
+    rulesPath,
+    JSON.stringify(
+      Object.fromEntries(
+        Object.keys(POLICY.tools)
+          .filter((t) => !t.includes("/"))
+          .map((t) => [t, { access: "read", arguments: { allow: ["purpose", "q"] } }]),
+      ),
+    ),
+  );
 
   const proc = spawn(
     process.execPath,
-    [PROXY, "--policy", policyPath, "--agent-id", "cursor-test", "--audit-path", auditPath, ...extra,
+    [PROXY, "--policy", policyPath, "--tool-rules", rulesPath, "--agent-id", "cursor-test", "--audit-path", auditPath, ...extra,
       "--", process.execPath, serverPath, seenPath],
     { stdio: ["pipe", "pipe", "inherit"] },
   );
@@ -171,7 +183,12 @@ describe("shield-proxy (Node) — MCP enforcement point", () => {
       for (const s of SECRETS) expect(JSON.stringify(reply)).not.toContain(s);
     }
 
-    const allow = events.filter((e) => e.decision === "allow");
+    // initialize without a pin file is withheld and named (S109); the call's event is the tool's.
+    const init = events.filter((e) => e.operation === "initialize")[0];
+    expect(init.reason_code).toBe("interface_unapproved");
+    expect(init.blocked_fields).toEqual(["<withheld:initialize>"]);
+    expect((byId.get(1)!.result as { serverInfo: unknown }).serverInfo).toEqual({ name: "mcp-server", version: "0" });
+    const allow = events.filter((e) => e.decision === "allow" && e.operation === "query_business_data");
     expect(allow[0].outcome).toBe("access_reduced");
     expect([...(allow[0].blocked_fields as string[])].sort()).toEqual(["<withheld:content[1].text>", "email", "ssn"]);
     const reasons = events.map((e) => e.reason_code);
@@ -194,5 +211,29 @@ describe("shield-proxy (Node) — MCP enforcement point", () => {
     expect(allow.outcome).toBe("access_reduced");
     expect(allow.reason_code).toBe("unfiltered_passthrough");
     expect(allow.allowed_fields).toEqual(["<unfiltered:content[1].text>"]);
+  });
+
+  it("argument rules (S109): a tool with no rule is refused before the server sees it", { timeout: 20000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "aegis-proxy-rules-"));
+    const rules = join(dir, "narrow.json");
+    writeFileSync(rules, JSON.stringify({ query_business_data: { access: "read", arguments: { allow: ["q"] } } }));
+    const { byId, events, seen } = await runProxy(["--tool-rules", rules]);
+    // id 2 (query_business_data, no argument) passes; id 6 (query_with_sampling) has no rule.
+    expect((byId.get(2)!.result as { structuredContent: unknown }).structuredContent).toEqual({ name: "ACME", company: "ACME Inc" });
+    const refused = byId.get(6)!.result as { content: Array<{ text: string }> };
+    expect(refused.content[0].text).toContain("argument_rule_missing");
+    expect(events.some((e) => e.reason_code === "argument_rule_missing" && e.operation === "query_with_sampling")).toBe(true);
+    expect(seen.some((m) => m.method === "tools/call" && (m.params as { name: string }).name === "query_with_sampling")).toBe(false);
+  });
+
+  it("a query rule is the relay's: the proxy refuses the rules document at start", () => {
+    const dir = mkdtempSync(join(tmpdir(), "aegis-proxy-relay-only-"));
+    const rules = join(dir, "rules.json");
+    const policy = join(dir, "policy.json");
+    writeFileSync(policy, JSON.stringify(POLICY));
+    writeFileSync(rules, JSON.stringify({ q: { access: "read", arguments: { allow: ["q"], query: { q: { language: "soql" } } } } }));
+    const r = spawnSync(process.execPath, [PROXY, "--policy", policy, "--tool-rules", rules, "--", "true"], { encoding: "utf8" });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("aegis.mcp_proxy.tool_rules_relay_only");
   });
 });

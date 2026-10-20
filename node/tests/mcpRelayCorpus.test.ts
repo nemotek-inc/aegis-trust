@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CanonicalEmitter, ENFORCEMENT_MCP_PROXY, loadCanonicalPolicy } from "../src/canonical.js";
-import { ShieldProxy } from "../src/mcpProxy.js";
+import { ShieldProxy, type ToolRules } from "../src/mcpProxy.js";
 
 interface Step {
   from: "host" | "server";
@@ -23,7 +23,14 @@ interface Step {
 interface Case {
   id: string;
   policy: string;
-  flags?: { uninspected?: "withhold" | "pass"; allow_declared_purpose?: boolean };
+  flags?: {
+    uninspected?: "withhold" | "pass";
+    allow_declared_purpose?: boolean;
+    tool_rules?: ToolRules;
+    no_tool_rules?: boolean;
+    unchecked_arguments?: "refuse" | "pass";
+    interface_pins?: Record<string, unknown>;
+  };
   steps: Step[];
   expect_events: Array<Record<string, unknown>>;
   host_may_contain?: string[];
@@ -31,7 +38,12 @@ interface Case {
 
 const corpus = JSON.parse(
   readFileSync(new URL("../../conformance/mcp_relay.v0.json", import.meta.url), "utf8"),
-) as { version: number; policies: Record<string, unknown>; cases: Case[] };
+) as {
+  version: number;
+  policies: Record<string, unknown>;
+  tool_rules?: Record<string, ToolRules>;
+  cases: Case[];
+};
 
 const EVENT_KEYS = ["purpose", "operation", "decision", "outcome", "reason_code", "blocked_fields", "allowed_fields"];
 
@@ -103,6 +115,9 @@ describe("MCP relay corpus", () => {
       const proxy = new ShieldProxy(policy, emitter, "corpus-host", null, null, {
         uninspected: c.flags?.uninspected ?? "withhold",
         allowDeclaredPurpose: c.flags?.allow_declared_purpose ?? false,
+        toolRules: c.flags?.no_tool_rules ? {} : (c.flags?.tool_rules ?? corpus.tool_rules?.[c.policy] ?? {}),
+        uncheckedArguments: c.flags?.unchecked_arguments ?? "refuse",
+        interfacePins: c.flags?.interface_pins ?? null,
       });
       const handles = new Map<string, string>();
       const hostBound: string[] = [];

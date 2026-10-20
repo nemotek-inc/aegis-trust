@@ -1,5 +1,5 @@
 {
- "$comment": "Cross-implementation MCP relay corpus . The Python and Node SDK proxies (python/tests/test_mcp_relay_corpus.py, node/tests/mcpRelayCorpus.test.ts) feed each case's lines, in order, to the shipped ShieldProxy (handle_client_line / handle_server_line / drain_to_server) and must produce the expected lines on each side and the expected events. Another enforcement point can run a copy pinned by sha256. Rules the expectations follow: no server line is relayed as the server wrote it; a gated result is rebuilt from a projection, where structuredContent, a text that is JSON as a whole and an embedded resource's text get the purpose's field rule and every other carrier is uninspected (withheld by default, relayed and named under uninspected=pass, never 'protected'); protocol values come from finite sets, are echoes of host values, or are proxy-owned handles; interface metadata of mapped tools and families is relayed (named limit). Matching: a string '$H:<name>' in an expected line matches a proxy-owned value starting with 'aegis-' and binds <name>; later uses (expected or in a host msg) mean that value. Two strings that both parse as JSON objects or arrays compare as parsed JSON. Events compare the listed keys; null means the key is absent. Every host-bound line is scanned for 'LEAK-': only the case's host_may_contain substrings may appear.",
+ "$comment": "Cross-implementation MCP relay corpus . The Python and Node SDK proxies (python/tests/test_mcp_relay_corpus.py, node/tests/mcpRelayCorpus.test.ts) feed each case's lines, in order, to the shipped ShieldProxy (handle_client_line / handle_server_line / drain_to_server) and must produce the expected lines on each side and the expected events. Another enforcement point can run a copy pinned by sha256. Rules the expectations follow: no server line is relayed as the server wrote it; a gated result is rebuilt from a projection, where structuredContent, a text that is JSON as a whole and an embedded resource's text get the purpose's field rule and every other carrier is uninspected (withheld by default, relayed and named under uninspected=pass, never 'protected'); protocol values come from finite sets, are echoes of host values, or are proxy-owned handles; interface metadata is relayed only as the operator pinned it (flags.interface_pins): an unpinned or differing entry is withheld (a tool keeps its policy-known name and an empty object schema, other entries are left out, initialize gets a neutral serverInfo) and named interface_unapproved, or under uninspected=pass relayed and named unfiltered; progress numbers are the relay's own count, never the server's; a tools/call's arguments pass only by the tool's rule (top-level tool_rules for the case's policy, or flags.tool_rules / flags.no_tool_rules): every leaf on arguments.allow, a tool with no rule refused unless flags.unchecked_arguments is pass (then the reply's event names the arguments unfiltered). Matching: a string '$H:<name>' in an expected line matches a proxy-owned value starting with 'aegis-' and binds <name>; later uses (expected or in a host msg) mean that value. Two strings that both parse as JSON objects or arrays compare as parsed JSON. Events compare the listed keys; null means the key is absent. Every host-bound line is scanned for 'LEAK-': only the case's host_may_contain substrings may appear.",
  "version": 0,
  "policies": {
   "p": {
@@ -45,6 +45,36 @@
    },
    "defaults": {
     "unknown_tool": "block"
+   }
+  }
+ },
+ "tool_rules": {
+  "p": {
+   "query": {
+    "access": "read",
+    "arguments": {
+     "allow": [
+      "purpose"
+     ]
+    }
+   },
+   "query_full": {
+    "access": "read",
+    "arguments": {
+     "allow": [
+      "purpose"
+     ]
+    }
+   }
+  },
+  "tools_only": {
+   "query": {
+    "access": "read",
+    "arguments": {
+     "allow": [
+      "purpose"
+     ]
+    }
    }
   }
  },
@@ -2521,7 +2551,7 @@
   },
   {
    "id": "initialize-projected",
-   "doc": "initialize keeps the protocol version, known capability flags, serverInfo strings and instructions; everything else is dropped",
+   "doc": "initialize keeps the protocol version, known capability flags, serverInfo strings and instructions; everything else is dropped (pinned as projected)",
    "policy": "p",
    "steps": [
     {
@@ -2609,7 +2639,19 @@
      "expect_server": []
     }
    ],
-   "expect_events": []
+   "expect_events": [],
+   "flags": {
+    "interface_pins": {
+     "version": 0,
+     "initialize": {
+      "serverInfo": {
+       "name": "srv",
+       "version": "1"
+      },
+      "instructions": "Use query."
+     }
+    }
+   }
   },
   {
    "id": "initialize-protocol-version-hostile",
@@ -2728,7 +2770,7 @@
   },
   {
    "id": "tools-list-projected-and-cursor-handle",
-   "doc": "tools/list shows mapped tools only, spec keys only, hint booleans only; nextCursor becomes a proxy handle that round-trips; an unknown handle is refused",
+   "doc": "tools/list shows mapped tools only, spec keys only, hint booleans only; nextCursor becomes a proxy handle that round-trips; an unknown handle is refused (pinned as projected)",
    "policy": "p",
    "steps": [
     {
@@ -2855,11 +2897,28 @@
      ]
     }
    ],
-   "expect_events": []
+   "expect_events": [],
+   "flags": {
+    "interface_pins": {
+     "version": 0,
+     "tools": {
+      "query": {
+       "name": "query",
+       "description": "Search records",
+       "inputSchema": {
+        "type": "object"
+       },
+       "annotations": {
+        "readOnlyHint": true
+       }
+      }
+     }
+    }
+   }
   },
   {
-   "id": "interface-metadata-named-limit",
-   "doc": "the named limit: a mapped tool's description is interface metadata and is relayed; this case measures the limit",
+   "id": "interface-unpinned-withheld",
+   "doc": "no pin file: every server-written interface text is withheld — a tool keeps its policy-known name and an empty object schema, a resource is left out, initialize gets a neutral serverInfo and no instructions; each reply names what it withheld (interface_unapproved)",
    "policy": "p",
    "steps": [
     {
@@ -2870,6 +2929,7 @@
       "method": "tools/list",
       "params": {}
      },
+     "expect_host": [],
      "expect_server": [
       {
        "jsonrpc": "2.0",
@@ -2877,8 +2937,7 @@
        "method": "tools/list",
        "params": {}
       }
-     ],
-     "expect_host": []
+     ]
     },
     {
      "from": "server",
@@ -2889,7 +2948,24 @@
        "tools": [
         {
          "name": "query",
-         "description": "LEAK-desc-meta",
+         "title": "LEAK-title",
+         "description": "LEAK-desc-meta Contact Secret=LEAK-v",
+         "inputSchema": {
+          "type": "object",
+          "properties": {
+           "q": {
+            "type": "string",
+            "default": "LEAK-default"
+           }
+          }
+         },
+         "annotations": {
+          "readOnlyHint": true
+         }
+        },
+        {
+         "name": "query_full",
+         "description": "Read all",
          "inputSchema": {
           "type": "object"
          }
@@ -2905,7 +2981,264 @@
         "tools": [
          {
           "name": "query",
-          "description": "LEAK-desc-meta",
+          "inputSchema": {
+           "type": "object"
+          }
+         },
+         {
+          "name": "query_full",
+          "inputSchema": {
+           "type": "object"
+          }
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "initialize",
+      "params": {
+       "protocolVersion": "2025-06-18",
+       "capabilities": {},
+       "clientInfo": {
+        "name": "h",
+        "version": "0"
+       }
+      }
+     },
+     "expect_host": [],
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 2,
+       "method": "initialize",
+       "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {
+         "name": "h",
+         "version": "0"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+       "protocolVersion": "2025-06-18",
+       "capabilities": {
+        "tools": {}
+       },
+       "serverInfo": {
+        "name": "LEAK-sn",
+        "version": "1"
+       },
+       "instructions": "LEAK-instructions"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 2,
+       "result": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {
+         "tools": {}
+        },
+        "serverInfo": {
+         "name": "mcp-server",
+         "version": "0"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "resources/list",
+      "params": {}
+     },
+     "expect_host": [],
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 3,
+       "method": "resources/list",
+       "params": {}
+      }
+     ]
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+       "resources": [
+        {
+         "uri": "sf://LEAK-uri",
+         "name": "LEAK-rname",
+         "description": "LEAK-rdesc"
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 3,
+       "result": {
+        "resources": []
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "tools/list",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "interface_unapproved",
+     "blocked_fields": [
+      "<withheld:tools/list:query>",
+      "<withheld:tools/list:query_full>"
+     ],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "unknown",
+     "operation": "initialize",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "interface_unapproved",
+     "blocked_fields": [
+      "<withheld:initialize>"
+     ],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "unknown",
+     "operation": "resources/list",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "interface_unapproved",
+     "blocked_fields": [
+      "<withheld:resources/list[0]>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "interface-pinned-relayed-as-pinned-differing-withheld",
+   "doc": "a pinned entry that the server's projected entry equals is relayed (the pinned value); one that differs (the server changed its description) is withheld and named",
+   "policy": "p",
+   "flags": {
+    "interface_pins": {
+     "version": 0,
+     "tools": {
+      "query": {
+       "name": "query",
+       "description": "Search records",
+       "inputSchema": {
+        "type": "object"
+       }
+      },
+      "query_full": {
+       "name": "query_full",
+       "description": "Read all",
+       "inputSchema": {
+        "type": "object"
+       }
+      }
+     }
+    }
+   },
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list",
+      "params": {}
+     },
+     "expect_host": [],
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/list",
+       "params": {}
+      }
+     ]
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "tools": [
+        {
+         "name": "query",
+         "title": "LEAK-title",
+         "description": "LEAK-desc-meta Contact Secret=LEAK-v",
+         "inputSchema": {
+          "type": "object",
+          "properties": {
+           "q": {
+            "type": "string",
+            "default": "LEAK-default"
+           }
+          }
+         },
+         "annotations": {
+          "readOnlyHint": true
+         }
+        },
+        {
+         "name": "query_full",
+         "description": "Read all",
+         "inputSchema": {
+          "type": "object"
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "tools": [
+         {
+          "name": "query",
+          "inputSchema": {
+           "type": "object"
+          }
+         },
+         {
+          "name": "query_full",
+          "description": "Read all",
           "inputSchema": {
            "type": "object"
           }
@@ -2917,9 +3250,241 @@
      "expect_server": []
     }
    ],
-   "expect_events": [],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "tools/list",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "interface_unapproved",
+     "blocked_fields": [
+      "<withheld:tools/list:query>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "interface-pin-numbers-by-value-not-type",
+   "doc": "pin equality compares numbers by value (2 == 2.0) and never a boolean with a number",
+   "policy": "p",
+   "flags": {
+    "interface_pins": {
+     "version": 0,
+     "tools": {
+      "query": {
+       "name": "query",
+       "inputSchema": {
+        "type": "object",
+        "properties": {
+         "n": {
+          "maximum": 2
+         }
+        }
+       }
+      },
+      "query_full": {
+       "name": "query_full",
+       "inputSchema": {
+        "type": "object",
+        "properties": {
+         "b": {
+          "default": 1
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list",
+      "params": {}
+     },
+     "expect_host": [],
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/list",
+       "params": {}
+      }
+     ]
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "tools": [
+        {
+         "name": "query",
+         "inputSchema": {
+          "type": "object",
+          "properties": {
+           "n": {
+            "maximum": 2.0
+           }
+          }
+         }
+        },
+        {
+         "name": "query_full",
+         "inputSchema": {
+          "type": "object",
+          "properties": {
+           "b": {
+            "default": true
+           }
+          }
+         }
+        }
+       ]
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "tools": [
+         {
+          "name": "query",
+          "inputSchema": {
+           "type": "object",
+           "properties": {
+            "n": {
+             "maximum": 2
+            }
+           }
+          }
+         },
+         {
+          "name": "query_full",
+          "inputSchema": {
+           "type": "object"
+          }
+         }
+        ]
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "tools/list",
+     "decision": "allow",
+     "outcome": "access_reduced",
+     "reason_code": "interface_unapproved",
+     "blocked_fields": [
+      "<withheld:tools/list:query_full>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "interface-unpinned-pass-named",
+   "doc": "uninspected=pass relays an unpinned entry as projected and names it unfiltered (never protected)",
+   "policy": "p",
+   "flags": {
+    "uninspected": "pass"
+   },
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "initialize",
+      "params": {
+       "protocolVersion": "2025-06-18",
+       "capabilities": {},
+       "clientInfo": {
+        "name": "h",
+        "version": "0"
+       }
+      }
+     },
+     "expect_host": [],
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 2,
+       "method": "initialize",
+       "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {
+         "name": "h",
+         "version": "0"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+       "protocolVersion": "2025-06-18",
+       "capabilities": {
+        "tools": {}
+       },
+       "serverInfo": {
+        "name": "LEAK-sn",
+        "version": "1"
+       },
+       "instructions": "LEAK-instructions"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 2,
+       "result": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {
+         "tools": {}
+        },
+        "serverInfo": {
+         "name": "LEAK-sn",
+         "version": "1"
+        },
+        "instructions": "LEAK-instructions"
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "unknown",
+     "operation": "initialize",
+     "decision": "allow",
+     "outcome": null,
+     "reason_code": "unfiltered_passthrough",
+     "blocked_fields": [],
+     "allowed_fields": [
+      "<unfiltered:initialize>"
+     ]
+    }
+   ],
    "host_may_contain": [
-    "LEAK-desc-meta"
+    "LEAK-sn",
+    "LEAK-instructions"
    ]
   },
   {
@@ -2975,7 +3540,7 @@
   },
   {
    "id": "resources-list-projected",
-   "doc": "resources/list keeps spec keys; a mimeType outside the set is dropped",
+   "doc": "resources/list keeps spec keys; a mimeType outside the set is dropped (pinned as projected)",
    "policy": "p",
    "steps": [
     {
@@ -3034,7 +3599,19 @@
      "expect_server": []
     }
    ],
-   "expect_events": []
+   "expect_events": [],
+   "flags": {
+    "interface_pins": {
+     "version": 0,
+     "resources": {
+      "sf://a": {
+       "uri": "sf://a",
+       "name": "a",
+       "description": "An object"
+      }
+     }
+    }
+   }
   },
   {
    "id": "resources-read-contents",
@@ -3252,7 +3829,7 @@
   },
   {
    "id": "progress-projected",
-   "doc": "progress: only a token the host sent; numbers kept; message uninspected; unknown token dropped",
+   "doc": "progress: only a token the host sent; the number is the relay's count (1, 2, ...), never the server's progress or total; message uninspected; unknown token dropped",
    "policy": "p",
    "steps": [
     {
@@ -3292,8 +3869,8 @@
       "method": "notifications/progress",
       "params": {
        "progressToken": "tok1",
-       "progress": 1,
-       "total": 2,
+       "progress": 917,
+       "total": 4242,
        "message": "LEAK-pm",
        "x": "LEAK-px"
       }
@@ -3304,8 +3881,32 @@
        "method": "notifications/progress",
        "params": {
         "progressToken": "tok1",
-        "progress": 1,
-        "total": 2
+        "progress": 1
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "method": "notifications/progress",
+      "params": {
+       "progressToken": "tok1",
+       "progress": 33,
+       "total": 1,
+       "message": "LEAK-pm",
+       "x": "LEAK-px"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "method": "notifications/progress",
+       "params": {
+        "progressToken": "tok1",
+        "progress": 2
        }
       }
      ],
@@ -3725,6 +4326,411 @@
       "<withheld:messages[0]>"
      ],
      "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "arguments-on-the-allow-list-pass",
+   "doc": "a call whose every argument leaf is on the tool's allow list is forwarded unchanged",
+   "policy": "p",
+   "flags": {
+    "tool_rules": {
+     "query": {
+      "access": "read",
+      "arguments": {
+       "allow": [
+        "q",
+        "filter.Name"
+       ]
+      }
+     }
+    }
+   },
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {
+        "q": "LEAK-q",
+        "filter": {
+         "Name": "LEAK-fn"
+        }
+       }
+      }
+     },
+     "expect_host": [],
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {
+         "q": "LEAK-q",
+         "filter": {
+          "Name": "LEAK-fn"
+         }
+        }
+       }
+      }
+     ]
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": "protected",
+     "reason_code": null,
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "arguments-off-the-list-refused",
+   "doc": "a leaf off the allow list (a read tool too), a key containing '.', and non-object arguments are refused before anything reaches the server; the event names the arguments, never their values",
+   "policy": "p",
+   "flags": {
+    "tool_rules": {
+     "query": {
+      "access": "read",
+      "arguments": {
+       "allow": [
+        "q",
+        "filter.Name"
+       ]
+      }
+     }
+    }
+   },
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {
+        "q": "x",
+        "filter": {
+         "Secret": "LEAK-s"
+        }
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'query' blocked (argument_not_allowed, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {
+        "filter.Name": "LEAK-dot"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 2,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'query' blocked (argument_not_allowed, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": "LEAK-not-object"
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 3,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'query' blocked (argument_not_allowed, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "argument_not_allowed",
+     "blocked_fields": [
+      "filter.Secret"
+     ],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "argument_not_allowed",
+     "blocked_fields": [
+      "filter.Name"
+     ],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "argument_not_allowed",
+     "blocked_fields": [
+      "<arguments>"
+     ],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "arguments-no-rule-refused",
+   "doc": "a tool with no rule is refused (argument_rule_missing), and so is a rule without an allow list",
+   "policy": "p",
+   "flags": {
+    "tool_rules": {
+     "query_full": {
+      "access": "write"
+     }
+    }
+   },
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {}
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'query' blocked (argument_rule_missing, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ],
+     "expect_server": []
+    },
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tools/call",
+      "params": {
+       "name": "query_full",
+       "arguments": {}
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 2,
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "Aegis shield-proxy: 'query_full' blocked (argument_rule_missing, fail-closed)."
+         }
+        ],
+        "isError": true
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "argument_rule_missing",
+     "blocked_fields": [],
+     "allowed_fields": null
+    },
+    {
+     "purpose": "full",
+     "operation": "query_full",
+     "decision": "deny",
+     "outcome": "blocked",
+     "reason_code": "argument_rule_missing",
+     "blocked_fields": [],
+     "allowed_fields": null
+    }
+   ]
+  },
+  {
+   "id": "arguments-unchecked-pass-named",
+   "doc": "unchecked_arguments=pass forwards a call whose tool has no rule; the reply never says protected and names the arguments unfiltered",
+   "policy": "p",
+   "flags": {
+    "no_tool_rules": true,
+    "unchecked_arguments": "pass"
+   },
+   "steps": [
+    {
+     "from": "host",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+       "name": "query",
+       "arguments": {
+        "anything": "x"
+       }
+      }
+     },
+     "expect_host": [],
+     "expect_server": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "tools/call",
+       "params": {
+        "name": "query",
+        "arguments": {
+         "anything": "x"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "from": "server",
+     "msg": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+       "structuredContent": {
+        "Id": "003A",
+        "Name": "Alpha"
+       }
+      }
+     },
+     "expect_host": [
+      {
+       "jsonrpc": "2.0",
+       "id": 1,
+       "result": {
+        "structuredContent": {
+         "Id": "003A",
+         "Name": "Alpha"
+        }
+       }
+      }
+     ],
+     "expect_server": []
+    }
+   ],
+   "expect_events": [
+    {
+     "purpose": "lookup",
+     "operation": "query",
+     "decision": "allow",
+     "outcome": null,
+     "reason_code": "unfiltered_passthrough",
+     "blocked_fields": [],
+     "allowed_fields": [
+      "<unfiltered:arguments>"
+     ]
     }
    ]
   }

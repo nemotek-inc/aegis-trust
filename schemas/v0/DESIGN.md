@@ -134,9 +134,10 @@ raises `ProjectionError` (fail-closed skip-and-count, never guessed).
 - **field classification**: `max_level` requires a field classification map;
   SDK/proxy skip it when absent.
 - **proxy direction**: the proxy minimizes what enters the host's context
-  (server→host). The host→server direction (tool arguments, sampling
-  responses) is not yet inspected; `destinations` egress policy is enforced
-  by the SDK/gateway forms in v0.
+  (server→host). Host→server, a `tools/call`'s arguments pass only by the
+  tool's rule (`--tool-rules`, every leaf on its allow list); `prompts/get` /
+  `completion/complete` arguments are not judged, and `destinations` egress
+  policy is enforced by the SDK/gateway forms in v0.
 - **uninspected output (proxy)**: only structured payloads can be minimized
   (`structuredContent` / a text that is JSON as a whole / an embedded
   resource's JSON text). Everything else the server sends on a gated call is
@@ -144,9 +145,10 @@ raises `ProjectionError` (fail-closed skip-and-count, never guessed).
   as unfiltered, never `protected` (`schemas/v0/mcp-hosts.md`). Route
   sensitive data through structured results.
 - **interface metadata (proxy)**: tool / resource / prompt descriptions,
-  `serverInfo` and `instructions` are relayed as the server's description of
-  its own interface; a server that writes data values into them is not
-  minimized. Listings are narrowed to the tools and families the policy maps.
+  `serverInfo` and `instructions` are server-written and reach the host only
+  as the operator pinned them (`--interface-pins`); anything unpinned is
+  withheld (a tool keeps its policy-known name). Progress numbers are the
+  proxy's own count. The presence and timing of lines remain a named limit.
 - **operational decision verbs (gateway projection)**: `project_gateway_audit.py`
   maps monolith gateway records to canonical events only for `ALLOW`/`DENY`
   decisions (plane-NATIVE receipts map the full five-state vocabulary — see

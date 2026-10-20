@@ -15,13 +15,16 @@
 // default) or relayed and named as unfiltered (--uninspected pass), never
 // recorded as protected; server requests other than ping / roots/list are
 // refused; a declared arguments.purpose that differs from the tools map is
-// refused unless --allow-declared-purpose. Named limits: interface metadata
-// (tool / resource / prompt descriptions, serverInfo, instructions) is relayed,
-// and numbers or timing a server chooses are low-bandwidth channels.
+// refused unless --allow-declared-purpose. Interface metadata is relayed only as
+// the operator pinned it (--interface-pins): an unpinned or differing entry is
+// withheld (a tool keeps its policy-known name only) and named. Progress numbers
+// are the proxy's own count. A tools/call's arguments pass only by the tool's
+// rule (--tool-rules); a tool with no rule is refused unless
+// --unchecked-arguments pass. Named limit: the presence and timing of lines.
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { closeSync, openSync, readFileSync, realpathSync, renameSync, writeSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
@@ -155,10 +158,155 @@ const LIST_CHANGED = new Set([
   "notifications/prompts/list_changed",
 ]);
 
+// The pin file's section for each listing, and the key that names an entry.
+const PIN_SECTIONS: Record<string, [string, string]> = {
+  "tools/list": ["tools", "name"],
+  "prompts/list": ["prompts", "name"],
+  "resources/list": ["resources", "uri"],
+  "resources/templates/list": ["resourceTemplates", "uriTemplate"],
+};
+const NEUTRAL_SERVER_INFO = { name: "mcp-server", version: "0" };
+
 type Obj = Record<string, unknown>;
 
 function isObj(v: unknown): v is Obj {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** A copy with object keys sorted at every level (stable candidate files). */
+function sortKeys(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sortKeys);
+  if (isObj(v)) {
+    const out: Obj = {};
+    for (const k of Object.keys(v).sort()) out[k] = sortKeys(v[k]);
+    return out;
+  }
+  return v;
+}
+
+/** Equality of two parsed JSON values, the same in the three implementations:
+ * numbers by value, a boolean never equal to a number, objects by key set,
+ * arrays in order. */
+export function jsonEqual(a: unknown, b: unknown): boolean {
+  if (typeof a === "boolean" || typeof b === "boolean") return a === b;
+  if (typeof a === "number" || typeof b === "number") return a === b;
+  if (Array.isArray(a)) {
+    return Array.isArray(b) && a.length === b.length && a.every((x, i) => jsonEqual(x, b[i]));
+  }
+  if (isObj(a)) {
+    if (!isObj(b)) return false;
+    const ka = Object.keys(a).sort();
+    const kb = Object.keys(b).sort();
+    return ka.length === kb.length && ka.every((k, i) => k === kb[i] && jsonEqual(a[k], b[k]));
+  }
+  return a === b;
+}
+
+export class ProxyConfigError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+  ) {
+    super(message);
+  }
+}
+
+export type ToolRule = { access?: "read" | "write"; arguments?: { allow: string[] } };
+export type ToolRules = Record<string, ToolRule>;
+
+/** The --tool-rules document, checked: `{tool: {access, arguments: {allow}}}`.
+ * `query` and `fields` rules are judged by aegis-mcp-relay only; a document that
+ * has them is refused rather than read as if they were enforced here. */
+export function validateToolRules(raw: unknown): ToolRules {
+  if (!isObj(raw)) throw new ProxyConfigError("tool rules must be a JSON object", "aegis.mcp_proxy.tool_rules_invalid");
+  for (const [tool, rule] of Object.entries(raw)) {
+    if (!tool || !isObj(rule)) {
+      throw new ProxyConfigError(`tool rule ${JSON.stringify(tool)} must be an object`, "aegis.mcp_proxy.tool_rules_invalid");
+    }
+    const unknown = Object.keys(rule).filter((k) => k !== "access" && k !== "arguments");
+    if (unknown.length > 0) {
+      throw new ProxyConfigError(`tool rule ${JSON.stringify(tool)}: unknown keys ${unknown.sort()}`, "aegis.mcp_proxy.tool_rules_invalid");
+    }
+    const access = rule.access ?? "write";
+    if (access !== "read" && access !== "write") {
+      throw new ProxyConfigError(`tool rule ${JSON.stringify(tool)}: access must be read or write`, "aegis.mcp_proxy.tool_rules_invalid");
+    }
+    if (rule.arguments !== undefined) {
+      const args = rule.arguments;
+      if (!isObj(args)) {
+        throw new ProxyConfigError(`tool rule ${JSON.stringify(tool)}: arguments must be an object`, "aegis.mcp_proxy.tool_rules_invalid");
+      }
+      const relayOnly = Object.keys(args).filter((k) => k === "query" || k === "fields");
+      if (relayOnly.length > 0) {
+        throw new ProxyConfigError(
+          `tool rule ${JSON.stringify(tool)}: ${relayOnly.sort()} are judged by aegis-mcp-relay only; this proxy does not enforce them`,
+          "aegis.mcp_proxy.tool_rules_relay_only",
+        );
+      }
+      const other = Object.keys(args).filter((k) => k !== "allow");
+      if (other.length > 0) {
+        throw new ProxyConfigError(`tool rule ${JSON.stringify(tool)}: unknown argument keys ${other.sort()}`, "aegis.mcp_proxy.tool_rules_invalid");
+      }
+      const allow = args.allow;
+      if (!Array.isArray(allow) || !allow.every((p) => typeof p === "string" && p.length > 0)) {
+        throw new ProxyConfigError(`tool rule ${JSON.stringify(tool)}: arguments.allow must be a list of paths`, "aegis.mcp_proxy.tool_rules_invalid");
+      }
+    }
+  }
+  return raw as ToolRules;
+}
+
+/** The --interface-pins document: `{version: 0, initialize, tools, prompts,
+ * resources, resourceTemplates}`, each value a projected entry. */
+export function validateInterfacePins(raw: unknown): Obj {
+  if (!isObj(raw) || raw.version !== 0) {
+    throw new ProxyConfigError("interface pins must be an object with version 0", "aegis.mcp_proxy.interface_pins_invalid");
+  }
+  const sections = new Set(Object.values(PIN_SECTIONS).map(([s]) => s));
+  const unknown = Object.keys(raw).filter((k) => !sections.has(k) && k !== "version" && k !== "initialize");
+  if (unknown.length > 0) {
+    throw new ProxyConfigError(`interface pins: unknown keys ${unknown.sort()}`, "aegis.mcp_proxy.interface_pins_invalid");
+  }
+  for (const s of sections) {
+    if (s in raw && !isObj(raw[s])) throw new ProxyConfigError(`interface pins: ${s} must be an object`, "aegis.mcp_proxy.interface_pins_invalid");
+  }
+  if ("initialize" in raw && !isObj(raw.initialize)) {
+    throw new ProxyConfigError("interface pins: initialize must be an object", "aegis.mcp_proxy.interface_pins_invalid");
+  }
+  return raw;
+}
+
+/** Every leaf path of a tool call's arguments (an array or an empty object is a
+ * leaf). A key that is empty or contains '.' cannot be named by a path and is
+ * reported in `bad`. */
+function leafPaths(value: unknown, prefix: string, out: string[], bad: string[]): void {
+  if (isObj(value) && Object.keys(value).length > 0) {
+    for (const [key, item] of Object.entries(value)) {
+      if (!key || key.includes(".")) {
+        bad.push(prefix ? `${prefix}.${key}` : key);
+        continue;
+      }
+      leafPaths(item, prefix ? `${prefix}.${key}` : key, out, bad);
+    }
+  } else if (prefix) {
+    out.push(prefix);
+  }
+}
+
+/** The argument rule of one tools/call: null = passes, else [reason, refused
+ * names]. The same rule as aegis-mcp-relay's: a read tool and a write tool alike
+ * pass only with every leaf on arguments.allow. */
+export function checkArguments(rule: ToolRule | undefined, args: unknown): [string, string[]] | null {
+  if (rule === undefined) return ["argument_rule_missing", []];
+  const allow = isObj(rule.arguments) ? rule.arguments.allow : undefined;
+  if (!Array.isArray(allow)) return ["argument_rule_missing", []];
+  if (args === undefined || args === null) return null;
+  if (!isObj(args)) return ["argument_not_allowed", ["<arguments>"]];
+  const paths: string[] = [];
+  const bad: string[] = [];
+  leafPaths(args, "", paths, bad);
+  const refused = [...bad, ...paths.filter((p) => !allow.some((a) => p === a || p.startsWith(`${a}.`)))];
+  return refused.length > 0 ? ["argument_not_allowed", [...new Set(refused)].sort()] : null;
 }
 
 function obj(v: unknown): Obj {
@@ -198,6 +346,7 @@ interface HostRequest {
   purpose: string | null; // set only for gated methods
   uri: string | null; // resources/read: the URI the host asked for
   declaredOverride: boolean; // the purpose came from arguments.purpose
+  argumentsUnchecked?: boolean; // forwarded without a rule (--unchecked-arguments pass)
 }
 
 /** What one gated reply released, removed, withheld, or passed uninspected. */
@@ -249,6 +398,10 @@ class Disclosure {
 export interface ShieldProxyOptions {
   uninspected?: "withhold" | "pass";
   allowDeclaredPurpose?: boolean;
+  toolRules?: ToolRules;
+  uncheckedArguments?: "refuse" | "pass";
+  interfacePins?: Obj | null;
+  candidatesPath?: string | null;
 }
 
 // No server line is relayed as the server wrote it: every relayed line is
@@ -261,6 +414,14 @@ export interface ShieldProxyOptions {
 export class ShieldProxy {
   readonly uninspected: "withhold" | "pass";
   readonly allowDeclaredPurpose: boolean;
+  readonly toolRules: ToolRules;
+  readonly uncheckedArguments: "refuse" | "pass";
+  readonly interfacePins: Obj;
+  /** Projected server entries that were not relayed as pinned, for the operator
+   * to review and approve (--interface-candidates). */
+  readonly candidates: Obj = { version: 0 };
+  private candidatesPath: string | null;
+  private progressCounts = new Map<string, number>();
   private pending = new Map<string, HostRequest>();
   private cursors = new Map<string, [string, string]>(); // handle -> [method, server cursor]
   private serverRequests = new Map<string, unknown>(); // proxy id -> server id
@@ -284,6 +445,15 @@ export class ShieldProxy {
     }
     this.uninspected = mode;
     this.allowDeclaredPurpose = options.allowDeclaredPurpose ?? false;
+    const unchecked = options.uncheckedArguments ?? "refuse";
+    if (unchecked !== "refuse" && unchecked !== "pass") {
+      throw new Error(`unknown uncheckedArguments mode ${String(unchecked)}`);
+    }
+    this.uncheckedArguments = unchecked;
+    this.toolRules = validateToolRules(options.toolRules ?? {});
+    // No pin file = nothing approved (the metadata is withheld, not relayed).
+    this.interfacePins = validateInterfacePins(options.interfacePins ?? { version: 0 });
+    this.candidatesPath = options.candidatesPath ?? null;
   }
 
   private principal(): Obj {
@@ -306,7 +476,8 @@ export class ShieldProxy {
     });
   }
 
-  private deny(purpose: string, operation: string, reasonCode: string): void {
+  /** A refusal. `blockedFields` names what was refused (argument names, never values). */
+  private deny(purpose: string, operation: string, reasonCode: string, blockedFields: string[] = []): void {
     this.emitter.emit({
       principal: this.principal(),
       purpose,
@@ -314,7 +485,7 @@ export class ShieldProxy {
       decision: "deny",
       outcome: "blocked",
       reasonCode,
-      blockedFields: [],
+      blockedFields: [...new Set(blockedFields)].sort(),
     });
   }
 
@@ -419,6 +590,21 @@ export class ShieldProxy {
       this.deny(declared || "unknown", operation, "unknown_tool");
       return { reply: this.blockReply(id, operation, "unknown_tool") };
     }
+    // host->server: a tools/call's arguments pass only by the tool's rule.
+    let argumentsUnchecked = false;
+    if (method === "tools/call") {
+      const rule = Object.prototype.hasOwnProperty.call(this.toolRules, lookup) ? this.toolRules[lookup] : undefined;
+      if (rule === undefined && this.uncheckedArguments === "pass") {
+        argumentsUnchecked = true;
+      } else {
+        const refusal = checkArguments(rule, params.arguments);
+        if (refusal !== null) {
+          const [reason, names] = refusal;
+          this.deny(purpose.name, operation, reason, names);
+          return { reply: this.blockReply(id, operation, reason) };
+        }
+      }
+    }
     if (this.gate !== null) {
       const [allowed, reason] = await this.gate.check(operation, purpose);
       if (!allowed) {
@@ -428,7 +614,14 @@ export class ShieldProxy {
       }
     }
     const uri = method === "resources/read" && typeof params.uri === "string" ? params.uri : null;
-    this.remember(id, { method, operation, purpose: purpose.name, uri, declaredOverride: override });
+    this.remember(id, {
+      method,
+      operation,
+      purpose: purpose.name,
+      uri,
+      declaredOverride: override,
+      argumentsUnchecked,
+    });
     return { forward };
   }
 
@@ -504,10 +697,14 @@ export class ShieldProxy {
         this.deny("unknown", "initialize", "protocol_version_unsupported");
         return errorReply(id, -32603, "Aegis: unsupported protocol version");
       }
-      return line({ jsonrpc: "2.0", id, result: projected });
+      const pinned = this.pinInitialize(projected);
+      this.flushCandidates();
+      return line({ jsonrpc: "2.0", id, result: pinned });
     }
     if (request.method in LISTING_METHODS) {
-      return line({ jsonrpc: "2.0", id, result: this.projectListing(request.method, result) });
+      const listing = this.projectListing(request.method, result);
+      this.flushCandidates();
+      return line({ jsonrpc: "2.0", id, result: listing });
     }
     if (EMPTY_RESULT_METHODS.has(request.method)) {
       return line({ jsonrpc: "2.0", id, result: {} });
@@ -520,6 +717,8 @@ export class ShieldProxy {
   private gatedReply(id: unknown, msg: Obj, request: HostRequest): string {
     const purpose = this.policy.purposes[request.purpose as string];
     const d = new Disclosure(purpose.name, this.uninspected);
+    // The call went out without an argument rule: the reply never says protected.
+    if (request.argumentsUnchecked) d.unfiltered.push("<unfiltered:arguments>");
     const out =
       "error" in msg
         ? { jsonrpc: "2.0", id, error: this.gatedError(d, purpose, msg.error) }
@@ -753,17 +952,95 @@ export class ShieldProxy {
     return dataMethod === "tools/call" || Object.prototype.hasOwnProperty.call(this.policy.tools, dataMethod);
   }
 
+  /** serverInfo and instructions are server-written: relayed only as approved
+   * (the pin's `initialize`). */
+  private pinInitialize(projected: Obj): Obj {
+    const iface: Obj = {};
+    for (const k of ["serverInfo", "instructions"]) if (k in projected) iface[k] = projected[k];
+    const pinned = this.interfacePins.initialize;
+    if (pinned !== undefined && jsonEqual(pinned, iface)) return projected;
+    this.candidates.initialize = iface;
+    if (this.uninspected === "pass") {
+      this.interfaceEvent("initialize", [], ["<unfiltered:initialize>"]);
+      return projected;
+    }
+    const out: Obj = {};
+    for (const [k, v] of Object.entries(projected)) if (!(k in iface)) out[k] = v;
+    out.serverInfo = { ...NEUTRAL_SERVER_INFO };
+    this.interfaceEvent("initialize", ["<withheld:initialize>"], []);
+    return out;
+  }
+
+  /** One listing entry: the pinned value when the server's projected entry
+   * equals it; otherwise withheld (a tool keeps its policy-known name only) or,
+   * under uninspected=pass, relayed and named. */
+  private pinEntry(method: string, index: number, projected: Obj, withheld: string[], unfiltered: string[]): Obj | null {
+    const [section, keyName] = PIN_SECTIONS[method];
+    const key = projected[keyName];
+    const pins = obj(this.interfacePins[section]);
+    const pinned = typeof key === "string" && Object.prototype.hasOwnProperty.call(pins, key) ? pins[key] : undefined;
+    if (pinned !== undefined && jsonEqual(pinned, projected)) return pinned as Obj;
+    if (typeof key === "string") {
+      const bucket = obj(this.candidates[section]);
+      bucket[key] = projected;
+      this.candidates[section] = bucket;
+    }
+    // A tool's name comes from the operator's policy; any other entry's name or
+    // URI is server-written, so the marker names its position only.
+    const marker = method === "tools/list" ? `${method}:${String(key)}` : `${method}[${index}]`;
+    if (this.uninspected === "pass") {
+      unfiltered.push(`<unfiltered:${marker}>`);
+      return projected;
+    }
+    withheld.push(`<withheld:${marker}>`);
+    if (method === "tools/list") return { name: key, inputSchema: { type: "object" } };
+    return null;
+  }
+
+  private interfaceEvent(operation: string, withheld: string[], unfiltered: string[]): void {
+    if (withheld.length === 0 && unfiltered.length === 0) return;
+    this.emitter.emit({
+      principal: this.principal(),
+      purpose: "unknown",
+      operation,
+      decision: "allow",
+      outcome: withheld.length > 0 ? "access_reduced" : null,
+      reasonCode: withheld.length > 0 ? "interface_unapproved" : "unfiltered_passthrough",
+      blockedFields: [...new Set(withheld)].sort(),
+      allowedFields: unfiltered.length > 0 ? [...new Set(unfiltered)].sort() : null,
+    });
+  }
+
+  /** Write the candidates for the operator (owner-only, replaced whole). The
+   * file holds server-written metadata: it is for review, never relayed. */
+  private flushCandidates(): void {
+    if (!this.candidatesPath) return;
+    const tmp = `${this.candidatesPath}.tmp`;
+    const fd = openSync(tmp, "w", 0o600);
+    try {
+      writeSync(fd, JSON.stringify(sortKeys(this.candidates), null, 1) + "\n");
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmp, this.candidatesPath);
+  }
+
   private projectListing(method: string, result: unknown): Obj {
     const key = LISTING_METHODS[method][0];
     const entries = isObj(result) ? result[key] : undefined;
     const projected: unknown[] = [];
     const out: Obj = { [key]: projected };
     if (!this.familyMapped(method) || !Array.isArray(entries)) return out;
-    for (const entry of entries) {
-      if (!isObj(entry)) continue;
+    const withheld: string[] = [];
+    const unfiltered: string[] = [];
+    entries.forEach((entry, index) => {
+      if (!isObj(entry)) return;
       const p = this.projectEntry(method, entry);
-      if (p !== null) projected.push(p);
-    }
+      if (p === null) return;
+      const relayed = this.pinEntry(method, index, p, withheld, unfiltered);
+      if (relayed !== null) projected.push(relayed);
+    });
+    this.interfaceEvent(method, withheld, unfiltered);
     const cursor = obj(result).nextCursor;
     if (typeof cursor === "string" && cursor) {
       const handle = "aegis-cursor-" + randomHex(16); // (ii-c)
@@ -838,8 +1115,11 @@ export class ShieldProxy {
     if (method === "notifications/progress") {
       const k = idKey(params.progressToken);
       if (k === null || !this.progressTokens.has(k)) return "";
-      const p: Obj = { progressToken: params.progressToken };
-      for (const key of ["progress", "total"]) if (isNum(params[key])) p[key] = params[key];
+      // The number is the proxy's own count, never the server's: a number a
+      // server chooses can carry a value one notification at a time.
+      const count = (this.progressCounts.get(k) ?? 0) + 1;
+      this.progressCounts.set(k, count);
+      const p: Obj = { progressToken: params.progressToken, progress: count };
       if (params.message !== undefined && params.message !== null && this.uninspected === "pass") {
         p.message = params.message;
       }
@@ -912,6 +1192,10 @@ interface ParsedArgs {
   owner: string | null;
   uninspected: "withhold" | "pass";
   allowDeclaredPurpose: boolean;
+  toolRules: string | null;
+  uncheckedArguments: "refuse" | "pass";
+  interfacePins: string | null;
+  interfaceCandidates: string | null;
   serverCmd: string[];
 }
 
@@ -929,6 +1213,17 @@ options:
   --allow-declared-purpose
                        honour arguments.purpose over the tools map (the host's
                        model then chooses the purpose; events say so)
+  --tool-rules <path>  per-tool argument rules (JSON, aegis-mcp-relay's tools shape):
+                       every argument leaf must be on the tool's arguments.allow;
+                       a tool with no rule is refused
+  --unchecked-arguments <mode>
+                       refuse (default) | pass: a call whose tool has no rule is
+                       refused, or forwarded and named unfiltered in the event
+  --interface-pins <path>
+                       approved interface metadata (JSON): an entry is relayed only
+                       as pinned; without a pin it is withheld (a tool keeps its name)
+  --interface-candidates <path>
+                       where to write the server's unapproved entries for review (0600)
   --help               show this help
 `;
 
@@ -944,6 +1239,10 @@ const VALUE_FLAGS = new Set([
   "--gate",
   "--owner",
   "--uninspected",
+  "--tool-rules",
+  "--unchecked-arguments",
+  "--interface-pins",
+  "--interface-candidates",
 ]);
 const BOOLEAN_FLAGS = new Set(["--allow-declared-purpose"]);
 
@@ -984,6 +1283,10 @@ function parseArgs(argv: string[]): ParsedArgs {
   if (uninspected !== "withhold" && uninspected !== "pass") {
     throw new Error(`aegis-mcp-proxy: unknown --uninspected ${uninspected} (withhold | pass)`);
   }
+  const uncheckedArguments = opts["unchecked-arguments"] || "refuse";
+  if (uncheckedArguments !== "refuse" && uncheckedArguments !== "pass") {
+    throw new Error(`aegis-mcp-proxy: unknown --unchecked-arguments ${uncheckedArguments} (refuse | pass)`);
+  }
   return {
     policy: opts.policy,
     agentId: opts["agent-id"] || process.env.AEGIS_AGENT_ID || "mcp-host",
@@ -993,8 +1296,20 @@ function parseArgs(argv: string[]): ParsedArgs {
     owner: opts.owner || process.env.AEGIS_OWNER || null,
     uninspected,
     allowDeclaredPurpose: opts["allow-declared-purpose"] === "true",
+    toolRules: opts["tool-rules"] || null,
+    uncheckedArguments,
+    interfacePins: opts["interface-pins"] || null,
+    interfaceCandidates: opts["interface-candidates"] || null,
     serverCmd,
   };
+}
+
+function readJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    throw new ProxyConfigError(`cannot read ${path}: ${(e as Error).message}`, "aegis.mcp_proxy.proxy_config_unreadable");
+  }
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -1027,10 +1342,28 @@ export async function main(argv: string[]): Promise<number> {
       );
     }
   }
+  const toolRules = args.toolRules ? validateToolRules(readJson(args.toolRules)) : {};
+  const pins = args.interfacePins ? validateInterfacePins(readJson(args.interfacePins)) : null;
   const proxy = new ShieldProxy(policy, emitter, args.agentId, args.sessionId, gate, {
     uninspected: args.uninspected,
     allowDeclaredPurpose: args.allowDeclaredPurpose,
+    toolRules,
+    uncheckedArguments: args.uncheckedArguments,
+    interfacePins: pins,
+    candidatesPath: args.interfaceCandidates,
   });
+  if (args.uncheckedArguments === "pass") {
+    process.stderr.write(
+      "aegis-mcp-proxy: --unchecked-arguments pass — a call whose tool has no rule is forwarded "
+        + "and recorded as unfiltered\n",
+    );
+  }
+  if (pins === null) {
+    process.stderr.write(
+      "aegis-mcp-proxy: no --interface-pins — the server's interface metadata is withheld until "
+        + "approved (tools keep their names)\n",
+    );
+  }
   if (args.uninspected === "pass") {
     process.stderr.write(
       "aegis-mcp-proxy: --uninspected pass — output the field rule cannot check is relayed "
