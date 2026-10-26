@@ -961,7 +961,7 @@ jobs:
           path: dist
 
       - name: Publish to PyPI via Trusted Publisher OIDC (token-free)
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
         with:
           packages-dir: dist
           skip-existing: true       # version-lock: a tag whose PyPI version already exists is a no-op, not a failure
