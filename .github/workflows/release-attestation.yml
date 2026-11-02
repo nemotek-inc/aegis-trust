@@ -437,13 +437,13 @@ jobs:
           mkdir sbom
 
       - name: Download the Node SBOM
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: sbom-node
           path: sbom
 
       - name: Download the Python SBOM
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: sbom-python
           path: sbom
@@ -665,7 +665,7 @@ jobs:
           mkdir sdk-artifacts
 
       - name: Download unsigned SDK artifacts from the build job
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: sdk-artifacts-unsigned
           path: sdk-artifacts
@@ -818,7 +818,7 @@ jobs:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
     steps:
       - name: Download cosign-signed .tgz from build job
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: npm-tarball-for-publish
           path: tarball
@@ -955,7 +955,7 @@ jobs:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
     steps:
       - name: Download built wheel + sdist from build job
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: pypi-dist-for-publish
           path: dist
